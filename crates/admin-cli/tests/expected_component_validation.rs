@@ -62,6 +62,38 @@ async fn rejected_expected_component_arguments_exit_before_contacting_core() {
             diagnostic: "--host_name is not supported for expected power shelf updates; remove it from the command",
             usage: "Usage: nico-admin-cli expected-power-shelf update",
         },
+        Case {
+            scenario: "shelf erase requires explicit confirmation",
+            args: &["expected-power-shelf", "erase"],
+            diagnostic: "--confirm is required to erase all expected power shelves",
+            usage: "Usage: nico-admin-cli expected-power-shelf erase",
+        },
+        Case {
+            scenario: "shelf update requires a selector",
+            args: &[
+                "expected-power-shelf",
+                "update",
+                "--shelf-serial-number",
+                "SHELF-002",
+            ],
+            diagnostic: "must specify either --bmc-mac-address or --id",
+            usage: "Usage: nico-admin-cli expected-power-shelf update",
+        },
+        Case {
+            scenario: "shelf update rejects conflicting selectors",
+            args: &[
+                "expected-power-shelf",
+                "update",
+                "--id",
+                "12345678-1234-5678-90ab-cdef01234567",
+                "--bmc-mac-address",
+                "00:11:22:33:44:55",
+                "--shelf-serial-number",
+                "SHELF-002",
+            ],
+            diagnostic: "cannot specify both --bmc-mac-address and --id; provide only one",
+            usage: "Usage: nico-admin-cli expected-power-shelf update",
+        },
     ] {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind private Core listener");
         listener

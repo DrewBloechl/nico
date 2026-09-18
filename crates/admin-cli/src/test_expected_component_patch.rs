@@ -312,6 +312,14 @@ async fn shelf_updates_select_supplied_values_without_replaying_lookup_fields() 
 }
 
 #[tokio::test]
+async fn confirmed_shelf_erase_deletes_all_expected_power_shelves_once() {
+    let (result, requests) =
+        dispatch(&["expected-power-shelf", "erase", "--confirm"], Code::Ok).await;
+    result.expect("confirmed shelf erase succeeds");
+    assert_methods(&requests, &["DeleteAllExpectedPowerShelves"]);
+}
+
+#[tokio::test]
 async fn switch_nvos_update_does_not_replay_bmc_credentials_or_select_empty_metadata() {
     let (result, requests) = dispatch(
         &[
@@ -950,6 +958,7 @@ async fn mock_request(
         "UpdateExpectedMachine" | "UpdateExpectedPowerShelf" | "UpdateExpectedSwitch" => {
             grpc_reply(Vec::new(), legacy_code)
         }
+        "DeleteAllExpectedPowerShelves" => grpc_reply(Vec::new(), Code::Ok),
         method => panic!("unexpected mock Forge method: {method}"),
     };
     requests.lock().unwrap().push(recorded);
