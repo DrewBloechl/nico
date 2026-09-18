@@ -18,7 +18,8 @@
 use std::net::IpAddr;
 
 use carbide_uuid::rack::RackId;
-use clap::{ArgGroup, Parser};
+use clap::error::ErrorKind;
+use clap::{ArgGroup, CommandFactory, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -133,6 +134,18 @@ pub(crate) struct Args {
 }
 
 impl Args {
+    pub(super) fn validate(&self) -> Result<(), clap::Error> {
+        if self.host_name.is_some() {
+            return Err(Self::command()
+                .bin_name("nico-admin-cli expected-power-shelf update")
+                .error(
+                    ErrorKind::ValueValidation,
+                    "--host_name is not supported for expected power shelf updates; remove it from the command",
+                ));
+        }
+        Ok(())
+    }
+
     pub(super) fn update_mask(&self) -> Vec<String> {
         [
             (self.bmc_username.is_some(), "bmc_username"),
