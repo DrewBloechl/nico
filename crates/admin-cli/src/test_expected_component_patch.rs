@@ -30,7 +30,6 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, header};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use prost::Message;
-use rpc::admin_cli::OutputFormat;
 use rpc::forge;
 use rpc::forge_api_client::{EXPECTED_SWITCH_UPDATE_MASK_HEADER, ForgeApiClient};
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
@@ -596,6 +595,14 @@ async fn shelf_lookup_without_an_id_uses_the_original_mac_update() {
         &requests,
         &["GetExpectedPowerShelf", "UpdateExpectedPowerShelf"],
     );
+    let lookup: forge::ExpectedPowerShelfRequest = requests[0].decode();
+    assert_eq!(
+        lookup,
+        forge::ExpectedPowerShelfRequest {
+            bmc_mac_address: MAC.to_string(),
+            expected_power_shelf_id: None,
+        }
+    );
     let update: forge::ExpectedPowerShelf = requests[1].decode();
     assert_eq!(
         update,
@@ -699,6 +706,87 @@ async fn core_patch_errors_propagate_without_legacy_fallback() {
     }
 }
 
+#[tokio::test]
+async fn shelf_delete_and_show_select_by_mac_or_id() {
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{Case, check_cases_async};
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "delete by positional MAC",
+                input: vec!["expected-power-shelf", "delete", MAC],
+                expect: Yields(vec![(
+                    "DeleteExpectedPowerShelf".to_string(),
+                    forge::ExpectedPowerShelfRequest {
+                        bmc_mac_address: MAC.to_string(),
+                        expected_power_shelf_id: None,
+                    },
+                )]),
+            },
+            Case {
+                scenario: "delete by ID",
+                input: vec!["expected-power-shelf", "delete", "--id", ID],
+                expect: Yields(vec![(
+                    "DeleteExpectedPowerShelf".to_string(),
+                    forge::ExpectedPowerShelfRequest {
+                        bmc_mac_address: String::new(),
+                        expected_power_shelf_id: Some(rpc_id()),
+                    },
+                )]),
+            },
+            Case {
+                scenario: "show by positional MAC",
+                input: vec!["expected-power-shelf", "show", MAC],
+                expect: Yields(vec![(
+                    "GetExpectedPowerShelf".to_string(),
+                    forge::ExpectedPowerShelfRequest {
+                        bmc_mac_address: MAC.to_string(),
+                        expected_power_shelf_id: None,
+                    },
+                )]),
+            },
+            Case {
+                scenario: "show by ID",
+                input: vec!["expected-power-shelf", "show", "--id", ID],
+                expect: Yields(vec![(
+                    "GetExpectedPowerShelf".to_string(),
+                    forge::ExpectedPowerShelfRequest {
+                        bmc_mac_address: String::new(),
+                        expected_power_shelf_id: Some(rpc_id()),
+                    },
+                )]),
+            },
+        ],
+        |args| async move {
+            let (result, requests) = dispatch(&args, Code::Ok).await;
+            result.map_err(|error| error.to_string())?;
+            Ok::<_, String>(
+                requests
+                    .into_iter()
+                    .map(|request| {
+                        let selector: forge::ExpectedPowerShelfRequest = request.decode();
+                        (request.method, selector)
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn shelf_show_without_a_selector_lists_all_shelves() {
+    // JSON exercises listing without the ASCII table's inventory lookups.
+    let (result, requests) = dispatch(
+        &["--format", "json", "expected-power-shelf", "show"],
+        Code::Ok,
+    )
+    .await;
+    result.expect("show without a selector succeeds");
+    assert_methods(&requests, &["GetAllExpectedPowerShelves"]);
+}
+
 fn assert_core_error(result: CarbideCliResult<()>, code: Code) {
     let error = result.expect_err("Core failure must fail the command");
     let CarbideCliError::EyreReport(report) = &error else {
@@ -780,7 +868,7 @@ async fn dispatch_with_replies(
             &client_config,
         ))),
         config: RuntimeConfig {
-            format: OutputFormat::AsciiTable,
+            format: options.format,
             request_timeout: client_config.request_timeout,
             page_size: 25,
             extended: false,
@@ -893,15 +981,25 @@ async fn mock_request(
                 Code::Ok,
             )
         }
+        "DeleteExpectedPowerShelf" => grpc_reply(Vec::new(), Code::Ok),
+        "GetAllExpectedPowerShelves" => grpc_reply(
+            forge::ExpectedPowerShelfList::default().encode_to_vec(),
+            Code::Ok,
+        ),
         "GetExpectedPowerShelf" => {
             let request: forge::ExpectedPowerShelfRequest = recorded.decode();
-            assert_eq!(
-                request,
+            let expected = if request.expected_power_shelf_id.is_some() {
+                forge::ExpectedPowerShelfRequest {
+                    bmc_mac_address: String::new(),
+                    expected_power_shelf_id: Some(rpc_id()),
+                }
+            } else {
                 forge::ExpectedPowerShelfRequest {
                     bmc_mac_address: MAC.to_string(),
                     expected_power_shelf_id: None,
                 }
-            );
+            };
+            assert_eq!(request, expected);
             grpc_reply(
                 forge::ExpectedPowerShelf {
                     expected_power_shelf_id: lookup_id.map(|id| rpc::common::Uuid {

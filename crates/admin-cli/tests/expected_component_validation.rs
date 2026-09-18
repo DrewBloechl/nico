@@ -48,6 +48,36 @@ async fn rejected_expected_component_arguments_exit_before_contacting_core() {
             usage: "Usage: nico-admin-cli expected-machine patch",
         },
         Case {
+            scenario: "shelf delete requires a selector",
+            args: &["expected-power-shelf", "delete"],
+            diagnostic: "must specify either a BMC MAC address or --id",
+            usage: "Usage: nico-admin-cli expected-power-shelf delete",
+        },
+        Case {
+            scenario: "shelf delete rejects conflicting selectors",
+            args: &[
+                "expected-power-shelf",
+                "delete",
+                "00:11:22:33:44:55",
+                "--id",
+                "12345678-1234-5678-90ab-cdef01234567",
+            ],
+            diagnostic: "cannot specify both a BMC MAC address and --id; provide only one",
+            usage: "Usage: nico-admin-cli expected-power-shelf delete",
+        },
+        Case {
+            scenario: "shelf show rejects conflicting selectors",
+            args: &[
+                "expected-power-shelf",
+                "show",
+                "00:11:22:33:44:55",
+                "--id",
+                "12345678-1234-5678-90ab-cdef01234567",
+            ],
+            diagnostic: "cannot specify both a BMC MAC address and --id; provide only one",
+            usage: "Usage: nico-admin-cli expected-power-shelf show",
+        },
+        Case {
             scenario: "unsupported shelf hostname rejects the entire update",
             args: &[
                 "expected-power-shelf",
