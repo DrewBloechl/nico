@@ -33,6 +33,24 @@ async fn rejected_expected_component_arguments_exit_before_contacting_core() {
 
     for case in [
         Case {
+            scenario: "unconfirmed machine erase fails the command",
+            args: &["expected-machine", "erase"],
+            diagnostic: "--confirm is required to erase all expected machines",
+            usage: "Usage: nico-admin-cli expected-machine erase",
+        },
+        Case {
+            scenario: "unconfirmed switch erase fails the command",
+            args: &["expected-switch", "erase"],
+            diagnostic: "--confirm is required to erase all expected switches",
+            usage: "Usage: nico-admin-cli expected-switch erase",
+        },
+        Case {
+            scenario: "unconfirmed rack erase fails the command",
+            args: &["expected-rack", "erase"],
+            diagnostic: "--confirm is required to erase all expected racks",
+            usage: "Usage: nico-admin-cli expected-rack erase",
+        },
+        Case {
             scenario: "duplicate machine DPU serials fail the command",
             args: &[
                 "expected-machine",

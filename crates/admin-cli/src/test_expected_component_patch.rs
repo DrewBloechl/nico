@@ -47,6 +47,39 @@ const MAC: &str = "00:11:22:33:44:55";
 const CORE_ERROR: &str = "request rejected by Core";
 
 #[tokio::test]
+async fn confirmed_erases_call_their_delete_rpc_once() {
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{Case, check_cases_async};
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "confirmed machine erase",
+                input: "expected-machine",
+                expect: Yields(vec!["DeleteAllExpectedMachines".to_string()]),
+            },
+            Case {
+                scenario: "confirmed switch erase",
+                input: "expected-switch",
+                expect: Yields(vec!["DeleteAllExpectedSwitches".to_string()]),
+            },
+            Case {
+                scenario: "confirmed rack erase",
+                input: "expected-rack",
+                expect: Yields(vec!["DeleteAllExpectedRacks".to_string()]),
+            },
+        ],
+        |command| async move {
+            let (result, requests) = dispatch(&[command, "erase", "--confirm"], Code::Ok).await;
+            result
+                .map(|()| requests.into_iter().map(|request| request.method).collect())
+                .map_err(|error| error.to_string())
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn machine_flags_select_only_supplied_fields() {
     struct Case {
         scenario: &'static str,
@@ -902,6 +935,7 @@ async fn dispatch_with_replies(
             CliCommand::ExpectedMachine(command) => command.dispatch(ctx).await,
             CliCommand::ExpectedPowerShelf(command) => command.dispatch(ctx).await,
             CliCommand::ExpectedSwitch(command) => command.dispatch(ctx).await,
+            CliCommand::ExpectedRack(command) => command.dispatch(ctx).await,
             _ => panic!("expected an expected-component command"),
         }
     }))
@@ -1052,6 +1086,9 @@ async fn mock_request(
                     .body(Empty::<Bytes>::new().boxed_unsync())
                     .unwrap(),
             }
+        }
+        "DeleteAllExpectedMachines" | "DeleteAllExpectedSwitches" | "DeleteAllExpectedRacks" => {
+            grpc_reply(Vec::new(), Code::Ok)
         }
         "UpdateExpectedMachine" | "UpdateExpectedPowerShelf" | "UpdateExpectedSwitch" => {
             grpc_reply(Vec::new(), legacy_code)
