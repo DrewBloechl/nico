@@ -7,6 +7,8 @@
 - [Flow operations](../../docs/operations/flow/overview.md)
 - [Implementation reference](../../docs/development/flow/flow-internals.md)
 - [Generated gRPC reference](docs/grpc-api.md)
+- [Event-rule architecture](docs/event-rule-architecture.md)
+- [Event rules usage guide](docs/event-rules-guide.md)
 
 ## Makefile targets
 
