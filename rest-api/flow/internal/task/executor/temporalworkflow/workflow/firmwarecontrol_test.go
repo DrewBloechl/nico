@@ -226,8 +226,9 @@ func TestFirmwareControlWorkflow(t *testing.T) {
 			} else {
 				for componentType, version := range tc.versions {
 					target := common.Target{
-						Type:         componentType,
-						ComponentIDs: []string{devicetypes.ComponentTypeToString(componentType)},
+						Type:           componentType,
+						IdentifierType: common.IdentifierTypeManagerID,
+						Identifiers:    []string{devicetypes.ComponentTypeToString(componentType)},
 					}
 					expectedInfo := *tc.info
 					expectedInfo.TargetVersion = version
@@ -237,15 +238,19 @@ func TestFirmwareControlWorkflow(t *testing.T) {
 			env.OnActivity(mockGetFirmwareStatus, mock.Anything, mock.Anything).Return(
 				func(_ context.Context, target common.Target) (*activitypkg.GetFirmwareStatusResult, error) {
 					statuses := make(map[string]operations.FirmwareUpdateStatus)
-					for _, id := range target.ComponentIDs {
+					for _, id := range target.Identifiers {
 						statuses[id] = operations.FirmwareUpdateStatus{ComponentID: id, State: operations.FirmwareUpdateStateCompleted}
 					}
 					return &activitypkg.GetFirmwareStatusResult{Statuses: statuses}, nil
 				})
 			if tc.versions == nil {
 				env.OnActivity(mockPowerControl, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				powerStatuses := make(map[string]operations.PowerStatus, len(tc.reqInfo.Components))
+				for _, component := range tc.reqInfo.Components {
+					powerStatuses[component.ComponentID] = operations.PowerStatusOn
+				}
 				env.OnActivity(mockGetPowerStatus, mock.Anything, mock.Anything).Return(
-					map[string]operations.PowerStatus{"comp1": operations.PowerStatusOn, "comp2": operations.PowerStatusOn}, nil)
+					powerStatuses, nil)
 			}
 
 			expectTaskUpdateActivities(env)

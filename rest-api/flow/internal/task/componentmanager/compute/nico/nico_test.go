@@ -90,8 +90,8 @@ func TestInjectExpectation(t *testing.T) {
 			m := New(tc.client, nil)
 
 			target := common.Target{
-				Type:         devicetypes.ComponentTypeCompute,
-				ComponentIDs: []string{"machine-1"},
+				Type:        devicetypes.ComponentTypeCompute,
+				Identifiers: []string{"machine-1"},
 			}
 
 			err := m.InjectExpectation(context.Background(), target, tc.info)
@@ -111,8 +111,8 @@ func TestPowerControl_HappyPath(t *testing.T) {
 	m := New(nicoapi.NewMockClient(), nil)
 
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1", "machine-2"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1", "machine-2"},
 	}
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
@@ -121,11 +121,40 @@ func TestPowerControl_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestMACTargetRequests(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	m := New(client, nil)
+	macs := []string{"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"}
+	target := common.Target{
+		Type:           devicetypes.ComponentTypeCompute,
+		IdentifierType: common.IdentifierTypeMACAddress,
+		Identifiers:    macs,
+	}
+
+	require.NoError(t, m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
+		Operation: operations.PowerOperationPowerOn,
+	}))
+	assert.Equal(t, macs, client.LastComponentPowerControlRequest().GetComputeBmcMacs().GetMacAddresses())
+
+	_, err := m.GetPowerStatus(context.Background(), target)
+	require.NoError(t, err)
+	assert.Equal(t, macs, client.LastGetComponentInventoryRequest().GetComputeBmcMacs().GetMacAddresses())
+
+	require.NoError(t, m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
+		TargetVersion: "fw-bundle-id-v1",
+	}))
+	assert.Equal(t, macs, client.LastUpdateComponentFirmwareRequest().GetComputeTrays().GetBmcMacs().GetMacAddresses())
+
+	_, err = m.GetFirmwareStatus(context.Background(), target)
+	require.NoError(t, err)
+	assert.Equal(t, macs, client.LastGetComponentFirmwareStatusRequest().GetComputeBmcMacs().GetMacAddresses())
+}
+
 func TestPowerControl_RejectsUnsupportedOperation(t *testing.T) {
 	m := New(nicoapi.NewMockClient(), nil)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
@@ -140,8 +169,8 @@ func TestFirmwareControl_HappyPath(t *testing.T) {
 	m := New(client, nil)
 
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
@@ -163,8 +192,8 @@ func TestFirmwareControl_HappyPath(t *testing.T) {
 func TestFirmwareControl_RejectsUnknownSubTarget(t *testing.T) {
 	m := New(nicoapi.NewMockClient(), nil)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
@@ -186,8 +215,8 @@ func TestFirmwareControl_DpuOnlyTarget(t *testing.T) {
 
 	m := withFastDpuReprov(New(client, nil), client)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{testHostMachineID},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{testHostMachineID},
 	}
 
 	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
@@ -215,8 +244,8 @@ func TestFirmwareControl_DpuOnlyRejectsAuthenticationData(t *testing.T) {
 	client := nicoapi.NewMockClient()
 	m := New(client, nil)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{testHostMachineID},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{testHostMachineID},
 	}
 
 	err := m.FirmwareControl(
@@ -238,6 +267,25 @@ func TestFirmwareControl_DpuOnlyRejectsAuthenticationData(t *testing.T) {
 	require.Empty(t, client.DpuReprovisioningTriggers())
 }
 
+func TestFirmwareControl_MACTargetRejectsDpuReprovisioning(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	m := New(client, nil)
+	target := common.Target{
+		Type:           devicetypes.ComponentTypeCompute,
+		IdentifierType: common.IdentifierTypeMACAddress,
+		Identifiers:    []string{"aa:bb:cc:dd:ee:ff"},
+	}
+
+	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
+		Operation:  operations.FirmwareOperationUpgrade,
+		SubTargets: []string{"dpu"},
+	})
+
+	require.ErrorContains(t, err, "DPU firmware reprovisioning requires ingested machine IDs")
+	require.Nil(t, client.LastUpdateComponentFirmwareRequest())
+	require.Empty(t, client.DpuReprovisioningTriggers())
+}
+
 // TestFirmwareControl_MixedDpuAndComputeTargets pins the
 // mixed-request contract: a request like ["bmc", "dpu"] runs the
 // compute-tray-internal path AND the DPU SAGA, with DPU last.
@@ -248,8 +296,8 @@ func TestFirmwareControl_MixedDpuAndComputeTargets(t *testing.T) {
 
 	m := withFastDpuReprov(New(client, nil), client)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{testHostMachineID},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{testHostMachineID},
 	}
 
 	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
@@ -273,8 +321,8 @@ func TestFirmwareControl_EmptySubTargetsSkipsDpu(t *testing.T) {
 
 	m := New(client, nil)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{testHostMachineID},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{testHostMachineID},
 	}
 
 	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
@@ -292,8 +340,8 @@ func TestGetFirmwareStatus_HappyPath(t *testing.T) {
 	m := New(nicoapi.NewMockClient(), nil)
 
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	statuses, err := m.GetFirmwareStatus(context.Background(), target)
@@ -419,8 +467,8 @@ func TestPowerControl_RefusesInUseMachine(t *testing.T) {
 
 	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
@@ -438,8 +486,8 @@ func TestPowerControl_AllowsReadyMachine(t *testing.T) {
 
 	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
@@ -454,8 +502,8 @@ func TestFirmwareControl_RefusesInUseMachine(t *testing.T) {
 
 	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
@@ -478,8 +526,8 @@ func TestPowerControl_OverrideBypassesReadinessCheck(t *testing.T) {
 
 	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
@@ -495,8 +543,8 @@ func TestBringUpControl_RefusesInUseMachine(t *testing.T) {
 
 	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	err := m.BringUpControl(context.Background(), target, operations.BringUpTaskInfo{})
@@ -511,8 +559,8 @@ func TestBringUpControl_OverrideBypassesReadinessCheck(t *testing.T) {
 
 	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1"},
 	}
 
 	err := m.BringUpControl(context.Background(), target, operations.BringUpTaskInfo{
@@ -568,8 +616,8 @@ func TestGetDecommissionStatusNormalizesStates(t *testing.T) {
 
 	m := New(client, nil)
 	states, err := m.GetDecommissionStatus(context.Background(), common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1", "machine-2", "machine-3"},
+		Type:        devicetypes.ComponentTypeCompute,
+		Identifiers: []string{"machine-1", "machine-2", "machine-3"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{
