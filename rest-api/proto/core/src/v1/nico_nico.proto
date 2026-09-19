@@ -719,6 +719,12 @@ service Forge {
   // Machine-Validation attempt detail
   rpc GetMachineValidationAttempt(MachineValidationAttemptGetRequest) returns (MachineValidationAttempt);
 
+  // Append the next ordered stdout or stderr chunk while an attempt is active.
+  rpc AppendMachineValidationAttemptLog(MachineValidationAttemptLogAppendRequest) returns (MachineValidationAttemptLogAppendResponse);
+
+  // Read a cursor-based page of persisted attempt logs.
+  rpc GetMachineValidationAttemptLogs(MachineValidationAttemptLogGetRequest) returns (MachineValidationAttemptLogList);
+
   // Machine-Validation run and active attempt heartbeat
   rpc HeartbeatMachineValidationRun(MachineValidationHeartbeatRequest) returns (MachineValidationHeartbeatResponse);
 
@@ -7353,6 +7359,8 @@ message MachineValidationPlugin {
   string parameters_json = 3;
   bool privileged = 4;
   bool host_access_full = 5;
+  // Plugin implementation type. `container` is the currently supported type.
+  string type = 6;
 }
 
 message MachineValidationTestFullHostApprovalRequest {
@@ -10683,4 +10691,63 @@ message PatchExpectedMachinesRequest {
   // succeed together or no row changes. No resource or credentials are echoed
   // in the response. An empty list is invalid.
   repeated PatchExpectedMachineRequest patches = 1;
+}
+
+// The source stream for a Machine Validation attempt-log chunk.
+enum MachineValidationAttemptLogStream {
+  MACHINE_VALIDATION_ATTEMPT_LOG_STREAM_UNSPECIFIED = 0;
+  MACHINE_VALIDATION_ATTEMPT_LOG_STREAM_STDOUT = 1;
+  MACHINE_VALIDATION_ATTEMPT_LOG_STREAM_STDERR = 2;
+}
+
+// One stdout or stderr chunk emitted by a running validation attempt. Sequence
+// numbers start at one, are contiguous within an attempt, and are assigned by
+// the producer. Retrying an accepted sequence with identical stream and content
+// succeeds without adding a duplicate; reusing it with different data fails.
+// Timestamps are set by the server when the chunk is first accepted.
+message MachineValidationAttemptLogChunk {
+  common.UUID attempt_id = 1;
+  uint32 sequence = 2;
+  MachineValidationAttemptLogStream stream = 3;
+  google.protobuf.Timestamp created_at = 4;
+  string content = 5;
+}
+
+message MachineValidationAttemptLogAppendRequest {
+  common.UUID attempt_id = 1;
+  // The next positive, contiguous sequence number for this attempt.
+  uint32 sequence = 2;
+  // The stdout or stderr source stream. UNSPECIFIED is invalid.
+  MachineValidationAttemptLogStream stream = 3;
+  // Non-empty UTF-8 content within the site's configured chunk limit.
+  string content = 4;
+}
+
+message MachineValidationAttemptLogAppendResponse {
+  // True when the chunk was accepted, including an idempotent retry.
+  // False when logging is disabled, the attempt is no longer active, or the
+  // per-attempt size limit was reached. Disabled storage and inactive attempts
+  // both return accepted=false and truncated=false. Invalid input returns an
+  // RPC error.
+  bool accepted = 1;
+  // True only when the per-attempt size limit prevented acceptance.
+  bool truncated = 2;
+}
+
+message MachineValidationAttemptLogGetRequest {
+  common.UUID attempt_id = 1;
+  // Return chunks with a sequence strictly greater than this value. Use zero
+  // for the first page and the last returned sequence for the next page.
+  uint32 after_sequence = 2;
+  // Maximum chunks to return. Zero defaults to 100; values from 1 through 100
+  // are accepted and larger values return INVALID_ARGUMENT, even when storage
+  // is disabled. Disabled storage otherwise returns an empty page.
+  uint32 limit = 3;
+}
+
+message MachineValidationAttemptLogList {
+  // Chunks in ascending sequence order.
+  repeated MachineValidationAttemptLogChunk chunks = 1;
+  // True when more chunks remain after this page's last sequence.
+  bool has_more = 2;
 }

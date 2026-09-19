@@ -524,6 +524,10 @@ pub(crate) async fn start_runtime(
     // Validate unconditionally; when explicitly enabled, missing prerequisites
     // fail rather than silently degrading.
     carbide_config.node_auth.validate()?;
+    carbide_config
+        .machine_validation_config
+        .validate()
+        .map_err(|error| eyre::eyre!("machine_validation_config.{error}"))?;
     let node_jwt_validator = if carbide_config.node_auth.enabled {
         // Bearer tokens must never be accepted over plaintext, and the
         // validator trusts the same roots the TLS listener uses for client
