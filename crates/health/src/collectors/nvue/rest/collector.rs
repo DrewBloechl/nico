@@ -247,7 +247,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
     ) -> Result<Self, HealthError> {
         let switch_id = match &endpoint.metadata {
             Some(EndpointMetadata::Switch(s)) => s.serial.clone(),
-            _ => endpoint.addr.mac.to_string(),
+            _ => endpoint.key(),
         };
 
         let event_context = EventContext::from_endpoint(endpoint.as_ref(), COLLECTOR_NAME);
@@ -1373,7 +1373,7 @@ mod tests {
         BmcAddr {
             ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             port: Some(443),
-            mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
+            mac: Some(MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap()),
         }
     }
 
