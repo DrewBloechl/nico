@@ -2040,6 +2040,7 @@ dependencies = [
  "carbide-uuid",
  "config-version",
  "kube",
+ "serde",
  "serde_json",
  "sqlx",
  "state-controller",
