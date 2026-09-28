@@ -343,6 +343,12 @@ in the pull request.
 - Be responsive to feedback and code review comments.
 - Ensure all CI checks pass before requesting review.
 
+### Pull request review
+
+A maintainer should provide an initial review within five business days of a
+pull request being marked ready for review. If that time passes without a review
+or update, comment on the pull request to request an update from a maintainer.
+
 ## Build Guide
 
 For pinned dependency updates, image testing, and build optimization trade-offs, see the
