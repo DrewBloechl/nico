@@ -216,6 +216,10 @@ Follow the shared [Engineering Guidelines](CONTRIBUTING.md#engineering-guideline
 for scope control, reuse-before-new-code, evidence-backed assumptions, and
 verification expectations.
 
+Agents must never commit credentials, API keys, secrets, or local environment
+files. Keep local secrets in the gitignored `.local_envrc` file and follow the
+[secret-scanning guidance](CONTRIBUTING.md#secret-scanning).
+
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
 
