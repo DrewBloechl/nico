@@ -353,7 +353,3 @@ or update, comment on the pull request to request an update from a maintainer.
 
 For pinned dependency updates, image testing, and build optimization trade-offs, see the
 [Build Guide](docs/development/build-guide.md).
-
-## Questions?
-
-If you have questions about contributing, please open an issue for discussion.
