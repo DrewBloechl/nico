@@ -381,8 +381,8 @@ impl InternalRBACRules {
             "GetAllExpectedMachines",
             vec![ForgeAdminCLI, SiteAgent, Flow],
         );
-        x.perm("ReplaceAllExpectedMachines", vec![ForgeAdminCLI]);
-        x.perm("DeleteAllExpectedMachines", vec![ForgeAdminCLI]);
+        x.perm("ReplaceAllExpectedMachines", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteAllExpectedMachines", vec![ForgeAdminCLI, SiteAgent]);
         x.perm(
             "GetAllExpectedMachinesLinked",
             vec![ForgeAdminCLI, SiteAgent, Flow],
@@ -804,11 +804,11 @@ impl InternalRBACRules {
         );
         x.perm(
             "ReplaceAllExpectedPowerShelves",
-            vec![ForgeAdminCLI, Machineatron],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
         x.perm(
             "DeleteAllExpectedPowerShelves",
-            vec![ForgeAdminCLI, Machineatron],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
         x.perm(
             "GetAllExpectedPowerShelvesLinked",
@@ -863,11 +863,11 @@ impl InternalRBACRules {
         );
         x.perm(
             "ReplaceAllExpectedSwitches",
-            vec![ForgeAdminCLI, Machineatron],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
         x.perm(
             "DeleteAllExpectedSwitches",
-            vec![ForgeAdminCLI, Machineatron],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
         x.perm(
             "GetAllExpectedSwitchesLinked",
@@ -1371,6 +1371,12 @@ mod rbac_rule_tests {
             "AdminPowerControl",
             "TriggerDpuReprovisioning",
             "AdminChassisReset",
+            "ReplaceAllExpectedMachines",
+            "DeleteAllExpectedMachines",
+            "ReplaceAllExpectedSwitches",
+            "DeleteAllExpectedSwitches",
+            "ReplaceAllExpectedPowerShelves",
+            "DeleteAllExpectedPowerShelves",
         ] {
             assert!(
                 InternalRBACRules::allowed_from_static(
