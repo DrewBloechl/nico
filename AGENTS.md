@@ -210,6 +210,12 @@ Published container artifacts must pin external base images by immutable
 digest. When architecture-specific targets share a base image, define one
 overridable variable so their versions cannot drift independently.
 
+## Agent Work Scope
+
+Agents may carry out user-requested work throughout the repository under the
+applicable guidelines. Agents may not change any `AGENTS.md` file or
+`STYLE_GUIDE.md` unless the user specifically requests changes to those files.
+
 ## Coding Conventions
 
 Follow the shared [Engineering Guidelines](CONTRIBUTING.md#engineering-guidelines)
