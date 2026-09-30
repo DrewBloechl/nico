@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::collections::BTreeSet;
+use std::ops::RangeInclusive;
 
 use crate::ip::prefix::{IpPrefix, Ipv4Prefix, Ipv6Prefix, ToPrefix};
 
@@ -82,6 +83,16 @@ impl IpSet {
         let container = match self.get_containing_prefix(prefix) {
             Some(included) => included,
             None => {
+                // If we didn't find a containing prefix to work on, the other
+                // possibility we need to account for is one or more smaller
+                // prefixes that are contained by the prefix we're removing.
+                while let Some(subprefix) = self
+                    .included_prefixes
+                    .range(subprefix_range(*prefix))
+                    .find_map(|included| prefix.contains(included).then_some(*included))
+                {
+                    self.included_prefixes.remove(&subprefix);
+                }
                 return;
             }
         };
@@ -140,6 +151,15 @@ impl IpSet {
             included_prefixes: BTreeSet::new(),
         }
     }
+}
+
+// Return a range that spans all of the possible subprefixes this prefix
+// could contain.
+//
+// This functionality relies on the specific Ord implementation of
+// `IpPrefix`.
+fn subprefix_range(prefix: IpPrefix) -> RangeInclusive<IpPrefix> {
+    prefix..=prefix.get_last_subprefix()
 }
 
 impl From<IpPrefix> for IpSet {
