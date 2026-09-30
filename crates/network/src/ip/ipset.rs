@@ -56,7 +56,7 @@ impl IpSet {
         // about to insert.
         while let Some(subprefix) = self
             .included_prefixes
-            .range(prefix..=prefix.get_last_subprefix())
+            .range(subprefix_range(prefix))
             .find_map(|p| prefix.contains(p).then_some(*p))
         {
             self.included_prefixes.remove(&subprefix);
