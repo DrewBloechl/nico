@@ -23,6 +23,10 @@ use crate::ip::prefix::{IpPrefix, Ipv4Prefix, Ipv6Prefix, ToPrefix};
 /// internally is represented as a set of prefixes that cover the included
 /// address space.
 pub struct IpSet {
+    // Anything updating this set must maintain these invariants:
+    // 1. The prefixes are disjoint (not overlapping)
+    // 2. No adjacent sibling prefixes exist; these must be stored as their
+    //    equivalent parent.
     included_prefixes: BTreeSet<IpPrefix>,
 }
 
