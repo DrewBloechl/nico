@@ -22,13 +22,13 @@ usage() {
 	echo "Usage: generate-source-sbom.sh [--revision REVISION] [--version VERSION] [--output FILE] [--repo-root PATH]"
 	echo "Default revision: HEAD in the selected repository."
 	echo "Default root component version: output of 'git describe' on the selected commit."
-	echo "Default output name: nico-<version>.cyclonedx.json."
+	echo "Default output: 'nico-<version>.cyclonedx.json'"
 }
 
 revision="HEAD"
 version=""
 output=""
-# The repository comes from REPO_ROOT (set by cargo make) unless --repo-root overrides it.
+# The repository comes from REPO_ROOT unless --repo-root overrides it.
 repo="${REPO_ROOT:-}"
 
 while (( $# )); do
@@ -63,53 +63,47 @@ if [[ -z "$repo" ]]; then
 	echo 'REPO_ROOT is not set; set it or pass --repo-root PATH' >&2
 	exit 2
 fi
+
 # Resolve to a full commit ID before doing any work, so a bad revision fails immediately.
 if ! commit="$(git -C "$repo" rev-parse --verify --quiet --end-of-options "${revision}^{commit}")"; then
 	printf 'Revision does not resolve to a commit: %s\n' "$revision" >&2
 	exit 1
 fi
+
+# Use 'git describe' to determine the version unless was manually specified
+# with '--version'.
 if [[ -z "$version" ]]; then
 	version="$(git -C "$repo" describe --tags --first-parent --always "$commit")"
 fi
 repo="$(cd -P "$(git -C "$repo" rev-parse --show-toplevel)" && pwd)"
 
-# Default output: nico-<version>.cyclonedx.json in the current directory, or next to the
-# repository if the script is run from inside it (the output must not land in the checkout).
 if [[ -z "$output" ]]; then
 	if [[ "$version" == */* ]]; then
 		echo 'Version contains /; specify --output FILE' >&2
 		exit 2
 	fi
 	output="nico-${version}.cyclonedx.json"
-	if [[ "$(pwd -P)/" == "$repo/"* ]]; then
-		output="$(dirname "$repo")/$output"
-	fi
 fi
-if [[ "${output##*/}" != *".cyclonedx"* ]]; then
-	echo 'Output file name must contain .cyclonedx' >&2
-	exit 2
-fi
-output_dir="$(cd -P "$(dirname "$output")" && pwd)"
-if [[ "$output_dir" == "$repo" || "$output_dir" == "$repo/"* ]]; then
-	echo 'Output must be outside the repository' >&2
+
+if [[ -L "$output" || ( -e "$output" && ! -f "$output" ) ]]; then
+	echo 'Output file already existed but was not a normal file' >&2
 	exit 2
 fi
 
 temp="$(mktemp -d)"
-# Use the physical path. On macOS mktemp -d is under /var, a symlink to /private/var, and Syft
-# mishandles scans of symlinked paths: it writes absolute host paths into the SBOM, ignores
-# --exclude and walks outside the tree.
-temp="$(cd -P "$temp" && pwd)"
+# Resolve the temp directory to its real location; Syft behaves badly if we
+# don't do this.
+temp="$(realpath "$temp")"
 trap 'rm -rf "$temp"' EXIT
 
-# Export only the tracked files at the commit. Scanning the checkout itself could pick up
-# untracked or ignored files (target/, virtualenvs) and would depend on what is checked out.
+# We'll work from a 'git archive' export of the repository so we don't have to
+# worry about untracked/uncommitted/ignored files.
 mkdir "$temp/source"
 git -C "$repo" archive "$commit" | tar -x -C "$temp/source"
 
-# lints/ holds a separate lint-plugin workspace and a test fixture, each with its own
-# Cargo.lock. They do not ship, so they are excluded. --enrich golang fetches Go module
-# licenses over the network and caches the results in Syft's cache.
+# lints/ holds a separate lint-plugin workspace and a test fixture, each with
+# its own Cargo.lock. They do not ship, so they are excluded. --enrich golang
+# fetches Go module licenses over the network.
 SYFT_CHECK_FOR_APP_UPDATE=false syft scan "dir:$temp/source" \
 	--source-name NICo \
 	--source-version "$version" \
@@ -117,10 +111,9 @@ SYFT_CHECK_FOR_APP_UPDATE=false syft scan "dir:$temp/source" \
 	--enrich golang \
 	-o "cyclonedx-json=$temp/syft.json"
 
-# Keep only packages that Syft read from a lockfile.
+# Filter out anything that didn't come from a lockfile (e.g. GitHub Actions
+# references, random executables, etc).
 jq '
-	# Lockfile catalogers only. This drops file entries, GitHub Actions references and packages
-	# Syft read out of binaries committed to the repository.
 	def from_lockfile:
 		any(.properties[]?; .name == "syft:package:foundBy" and
 			(.value == "rust-cargo-lock-cataloger" or
@@ -134,7 +127,9 @@ jq '
 
 # If Syft couldn't retrieve the Go licenses because of a network issue, it
 # will have proceeded anyway, which could give us an SBOM missing a lot of
-# information. Check the components retained by the filter above.
+# information. Check that we have at least one; it's difficult to be more strict
+# than this because some of the Go modules don't store their licenses in a
+# standard way.
 if ! jq -e '
 	[.components[] | select((.purl // "" | startswith("pkg:golang/")))] as $go_components
 	| ($go_components | length == 0) or any($go_components[]; (.licenses // [] | length) > 0)
@@ -144,7 +139,7 @@ if ! jq -e '
 fi
 
 # Syft reads Cargo.lock, which carries no license data, so we extract the Rust
-# crate licenses using "cargo metadata". Run it from the exported source so
+# crate licenses using 'cargo metadata'. Run it from the exported source so
 # rustup uses that revision's toolchain.
 pushd "$temp/source" >/dev/null
 cargo metadata --format-version 1 --all-features --locked >"$temp/cargo.json"
