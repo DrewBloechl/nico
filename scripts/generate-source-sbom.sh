@@ -10,7 +10,8 @@
 # Requires git, syft, jq and a Rust toolchain (cargo).
 #
 # Requires network access; `cargo metadata` queries crates.io for uncached
-# dependencies, and Syft queries Go module licenses from proxy.golang.org.
+# dependencies, and Syft queries Go module licenses from proxy.golang.org and
+# Python package licenses from pypi.org.
 #
 # Syft caches data in `${SYFT_CACHE_DIR-$HOME/.cache/syft}`, and `cargo
 # metadata` will cache data in `${CARGO_HOME:-$HOME/.cargo}/registry/` and
@@ -19,10 +20,16 @@
 set -euo pipefail
 
 usage() {
-	echo "Usage: generate-source-sbom.sh [--revision REVISION] [--version VERSION] [--output FILE] [--repo-root PATH]"
-	echo "Default revision: HEAD in the selected repository."
-	echo "Default root component version: output of 'git describe' on the selected commit."
-	echo "Default output: 'nico-<version>.cyclonedx.json'"
+	cat <<'EOF'
+Usage: generate-source-sbom.sh [OPTIONS]
+
+Options:
+  --repo-root <PATH>      Repository root (required unless REPO_ROOT is set; overrides REPO_ROOT)
+  --revision <REVISION>   Git revision to scan (default: HEAD)
+  --version <VERSION>     Root component version (default: git describe of revision)
+  --output <FILE>         Output file (default: nico-<version>.cyclonedx.json)
+  -h, --help              Show this help text
+EOF
 }
 
 revision="HEAD"
@@ -74,6 +81,7 @@ fi
 # with '--version'.
 if [[ -z "$version" ]]; then
 	version="$(git -C "$repo" describe --tags --first-parent --always "$commit")"
+	printf 'Version from git-describe: %s\n' "$version"
 fi
 repo="$(cd -P "$(git -C "$repo" rev-parse --show-toplevel)" && pwd)"
 
@@ -102,13 +110,14 @@ mkdir "$temp/source"
 git -C "$repo" archive "$commit" | tar -x -C "$temp/source"
 
 # lints/ holds a separate lint-plugin workspace and a test fixture, each with
-# its own Cargo.lock. They do not ship, so they are excluded. --enrich golang
-# fetches Go module licenses over the network.
+# its own Cargo.lock. They do not ship, so they are excluded. Enrichment
+# fetches Go module and Python package licenses over the network.
 SYFT_CHECK_FOR_APP_UPDATE=false syft scan "dir:$temp/source" \
 	--source-name NICo \
 	--source-version "$version" \
 	--exclude './lints/**' \
 	--enrich golang \
+	--enrich python \
 	-o "cyclonedx-json=$temp/syft.json"
 
 # Filter out anything that didn't come from a lockfile (e.g. GitHub Actions
