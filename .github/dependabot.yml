@@ -12,6 +12,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 3
     labels: ["dependencies"]
     groups:
       cargo-minor-patch:
@@ -27,6 +29,8 @@ updates:
       - "/rest-api/sdk/standard"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 3
     labels: ["dependencies", "rest-api"]
     groups:
       gomod-rest-api-minor-patch:
@@ -45,6 +49,8 @@ updates:
       - "/dev/k8s/machine-a-tron-controller"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 3
     labels: ["dependencies"]
     groups:
       gomod-other-minor-patch:
@@ -63,6 +69,8 @@ updates:
       - "/.github/actions/*"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 3
     labels: ["dependencies"]
     groups:
       github-actions-minor-patch:
@@ -76,6 +84,8 @@ updates:
     directory: "/tests/machine-lifecycle"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 3
     labels: ["dependencies"]
     groups:
       uv-minor-patch:
