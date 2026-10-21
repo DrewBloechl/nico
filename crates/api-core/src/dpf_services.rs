@@ -768,7 +768,8 @@ fn weave_dhcp_agent_networks() -> Vec<serde_json::Value> {
         .iter()
         .map(|port| {
             serde_json::json!({
-                "name": format!("dhcp-{port}"),
+                // Kubernetes NAD names must be lowercase.
+                "name": format!("dhcp-{}", port.to_ascii_lowercase()),
                 "bridge": format!("br-dhcp-{port}"),
                 "resourceName": "nvidia.com/bf_sf",
                 "interfaceName": port,
@@ -1459,6 +1460,20 @@ mod tests {
         assert_eq!(
             values["weaveDHCPAgent"]["dhcpNetworks"]["networks"],
             serde_json::Value::Array(weave_dhcp_agent_networks())
+        );
+
+        let networks = values["weaveDHCPAgent"]["dhcpNetworks"]["networks"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            networks
+                .iter()
+                .map(|network| network["name"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "dhcp-a56", "dhcp-a53", "dhcp-a6", "dhcp-a3", "dhcp-a43", "dhcp-a46", "dhcp-a13",
+                "dhcp-a16"
+            ]
         );
 
         let resources = service_configuration
