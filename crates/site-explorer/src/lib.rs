@@ -1460,6 +1460,19 @@ impl SiteExplorer {
             if dpu_exploration.expected_managed_total() == 0 {
                 for chassis in ep.report.chassis.iter() {
                     for record in host_dpu_inventory_records(chassis) {
+                        if let Some(serial_number) = duplicate_bluefield_serial(
+                            record.part_number,
+                            record.serial_number,
+                            &mut seen_bluefield_serials,
+                        ) {
+                            tracing::warn!(
+                                host_bmc_ip_address = %ep.address,
+                                %serial_number,
+                                chassis_id = %chassis.id,
+                                "duplicate BlueField serial in host chassis inventory; skipping duplicate record",
+                            );
+                            continue;
+                        }
                         self.record_host_dpu_device(
                             record.part_number,
                             record.serial_number,
@@ -3904,7 +3917,7 @@ fn is_dpu_in_nic_mode(dpu_ep: &ExploredEndpoint, host_ep: &ExploredEndpoint) -> 
     nic_mode
 }
 
-/// Returns the normalized serial when a host PCIe record repeats a BlueField
+/// Returns the normalized serial when a host inventory record repeats a BlueField
 /// serial already seen during this host's ingestion pass.
 fn duplicate_bluefield_serial<'a>(
     part_number: Option<&str>,
@@ -3924,8 +3937,9 @@ fn duplicate_bluefield_serial<'a>(
 
 /// `host_dpu_inventory_records` applies the existing chassis inventory rule in
 /// one place. Some BMCs put the BlueField identity on the chassis itself;
-/// others put it on a nested network adapter. Reading only one form prevents a
-/// single DPU from being counted twice.
+/// others put it on a nested network adapter. Reading only one form avoids
+/// duplicate representations within this chassis. The same serial can still
+/// appear in other chassis, so callers counting DPUs must deduplicate per host.
 fn host_dpu_inventory_records(chassis: &Chassis) -> Vec<HostDpuInventoryCandidate<'_>> {
     let chassis_is_bluefield = chassis
         .part_number
