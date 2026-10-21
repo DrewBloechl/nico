@@ -111,7 +111,6 @@ script = '''
 category = "qcow-imager"
 description = "Build qcow-imager.efi for x86_64 only (without scout/BFB); output: static/blobs/internal/x86_64/qcow-imager.efi"
 dependencies = [
-  "mkosi-remove-zypper-from-debian-tools",
   "mkdir-static",
   "mkosi-generate-build-tmpdir",
   "mkosi-remove-legacy-inputs",
@@ -126,7 +125,6 @@ dependencies = [
 category = "qcow-imager"
 description = "Build qcow-imager.efi for aarch64 only (without scout/BFB); output: static/blobs/internal/aarch64/qcow-imager.efi"
 dependencies = [
-  "mkosi-remove-zypper-from-debian-tools",
   "mkdir-static",
   "mkosi-generate-build-tmpdir",
   "mkosi-remove-legacy-inputs",
@@ -286,7 +284,6 @@ dependencies = [
 [tasks.create-ephemeral-image-x86-host-ci]
 category = "Ephemeral Image"
 dependencies = [
-  "mkosi-remove-zypper-from-debian-tools",
   "mkosi-generate-build-tmpdir",
   "mkosi-remove-legacy-inputs",
   "mkosi-reset-stage",
@@ -310,7 +307,6 @@ dependencies = [
 [tasks.create-ephemeral-image-x86-host]
 category = "Ephemeral Image"
 dependencies = [
-  "mkosi-remove-zypper-from-debian-tools",
   "mkdir-static",
   "mkosi-generate-build-tmpdir",
   "mkosi-remove-legacy-inputs",
@@ -335,7 +331,6 @@ dependencies = [
 [tasks.create-ephemeral-image-arm-host-ci]
 category = "Ephemeral Image"
 dependencies = [
-  "mkosi-remove-zypper-from-debian-tools",
   "mkosi-generate-build-tmpdir",
   "mkosi-remove-legacy-inputs",
   "mkosi-reset-stage",
@@ -359,7 +354,6 @@ dependencies = [
 [tasks.create-ephemeral-image-arm-host]
 category = "Ephemeral Image"
 dependencies = [
-  "mkosi-remove-zypper-from-debian-tools",
   "mkdir-static",
   "mkosi-generate-build-tmpdir",
   "mkosi-remove-legacy-inputs",
@@ -467,7 +461,13 @@ dependencies = ["mkdir-static"]
 [tasks.mkosi-clean-qcow-imager]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "qcow-imager", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "qcow-imager",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "--force",
+  "clean",
+]
 
 [tasks.mkosi-clean-qcow-imager-aarch64]
 category = "Ephemeral Image"
@@ -476,6 +476,7 @@ args = [
   "--profile",
   "qcow-imager-aarch64",
   "--output-dir=${MKOSI_BUILD_TMP}",
+  "--force",
   "clean",
 ]
 
@@ -486,6 +487,7 @@ args = [
   "--profile",
   "scout-oss-x86_64",
   "--output-dir=${MKOSI_BUILD_TMP}",
+  "--force",
   "clean",
 ]
 
@@ -496,6 +498,7 @@ args = [
   "--profile",
   "scout-loader-x86_64",
   "--output-dir=${MKOSI_BUILD_TMP}",
+  "--force",
   "clean",
 ]
 
@@ -506,6 +509,7 @@ args = [
   "--profile",
   "scout-oss-aarch64",
   "--output-dir=${MKOSI_BUILD_TMP}",
+  "--force",
   "clean",
 ]
 
@@ -516,19 +520,9 @@ args = [
   "--profile",
   "scout-loader-aarch64",
   "--output-dir=${MKOSI_BUILD_TMP}",
+  "--force",
   "clean",
 ]
-
-[tasks.mkosi-remove-zypper-from-debian-tools]
-category = "Ephemeral Image"
-description = "Remove zypper from the debian-tools image, as it's been removed from the repo"
-script = '''
-if [ -f ${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-kali-ubuntu/mkosi.conf ]; then
-  sed -i '/zypper/d' ${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-kali-ubuntu/mkosi.conf
-elif [ -f ${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-ubuntu/mkosi.conf ]; then
-  sed -i '/zypper/d' ${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-ubuntu/mkosi.conf
-fi
-'''
 
 [tasks.mkosi-generate-build-tmpdir]
 category = "Ephemeral Image"
@@ -560,7 +554,7 @@ script = '''
 '''
 
 # `depmod` on our runners is in `/sbin`, so add to PATH
-# Note: mkosi v25 uses built-in sandboxing via Linux namespaces (not bwrap)
+# Note: mkosi v26 uses built-in sandboxing via Linux namespaces (not bwrap)
 # which should work on GitHub Actions managed runners.
 [tasks.mkosi-build-scout-x86_64]
 category = "Ephemeral Image"
@@ -568,7 +562,7 @@ script = '''
   PROFILE="scout-oss-x86_64"
   export PATH=${PATH}:/sbin
   mkdir -p "${MKOSI_PACKAGE_CACHE_DIR}" "${MKOSI_STAGE}/${PROFILE}"
-  ${REPO_ROOT}/pxe/mkosi/bin/mkosi -E PKG_VERSION="${PKG_VERSION}" --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} --package-cache-directory=${MKOSI_PACKAGE_CACHE_DIR} --extra-tree=${MKOSI_STAGE}/${PROFILE} --with-network build
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi -E PKG_VERSION="${PKG_VERSION}" --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} --package-cache-directory=${MKOSI_PACKAGE_CACHE_DIR} --extra-tree=${MKOSI_STAGE}/${PROFILE} build
 '''
 
 [tasks.mkosi-build-scout-loader-x86_64]
