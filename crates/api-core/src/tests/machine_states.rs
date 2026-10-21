@@ -43,7 +43,8 @@ use common::api_fixtures::network_segment::{
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
 use common::api_fixtures::{
     TestEnv, TestManagedHost, create_managed_host, create_managed_host_with_config,
-    create_test_env, create_test_env_with_overrides, get_config, simulate_hardware_health_report,
+    create_test_env, create_test_env_with_overrides, get_config, network_configured_with_health,
+    simulate_hardware_health_report,
 };
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport};
 use ipnetwork::IpNetwork;
@@ -1944,6 +1945,81 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     assert!(
         matches!(outcome, PersistentStateHandlerOutcome::Wait{ reason, source_ref: Some(source_ref) } if !reason.is_empty() && source_ref.file.ends_with("/handler.rs")),
         "Third iteration should be waiting for DPU agent, and include a wait reason and source reference",
+    );
+}
+
+/// A DPU whose agent reports a critical alert (here, the HBN container missing)
+/// keeps the host in `WaitingForNetworkConfig` even though it has applied the
+/// current network config. The wait reason names the DPU and points at its health
+/// alerts. Once the alert clears, the host moves on.
+#[crate::sqlx_test]
+async fn test_dpu_init_waits_on_dpu_health_alert(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host_config = env.managed_host_config();
+    let mh = create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
+    let dpu_id = mh.dpu_ids[0];
+
+    // Scout does its thing, then the agent applies the current network config
+    // while reporting that the HBN container does not exist.
+    let _ = mh.dpu().forge_agent_control().await;
+    let container_missing = rpc::health::HealthReport {
+        source: "forge-dpu-agent".to_string(),
+        triggered_by: None,
+        observed_at: None,
+        successes: vec![],
+        alerts: vec![rpc::health::HealthProbeAlert {
+            id: "ContainerExists".to_string(),
+            target: None,
+            in_alert_since: None,
+            message: "HBN container not found".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                HealthAlertClassification::prevent_allocations().to_string(),
+                HealthAlertClassification::prevent_host_state_changes().to_string(),
+            ],
+        }],
+    };
+    network_configured_with_health(&env, &dpu_id, Some(container_missing)).await;
+
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.db_txn().await;
+    let host_machine = mh.host().db_machine(&mut txn).await;
+    txn.rollback().await.unwrap();
+    assert!(
+        matches!(
+            host_machine.current_state(),
+            ManagedHostState::DPUInit { dpu_states }
+                if dpu_states.states == HashMap::from([(dpu_id, DpuInitState::WaitingForNetworkConfig)])
+        ),
+        "a blocking DPU alert should keep the host in WaitingForNetworkConfig, got {:?}",
+        host_machine.current_state()
+    );
+    let outcome = host_machine
+        .controller_state_outcome
+        .expect("the controller should have recorded an outcome");
+    assert!(
+        matches!(
+            &outcome,
+            PersistentStateHandlerOutcome::Wait { reason, .. }
+                if reason.contains(&dpu_id.to_string())
+                    && reason.contains("check the DPU health alerts")
+        ),
+        "the wait reason should name the DPU and point at its health alerts, got {outcome:?}"
+    );
+
+    // The alert clears; the host is no longer held in this state.
+    network_configured_with_health(&env, &dpu_id, None).await;
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.db_txn().await;
+    let host_machine = mh.host().db_machine(&mut txn).await;
+    txn.rollback().await.unwrap();
+    assert!(
+        matches!(
+            host_machine.current_state(),
+            ManagedHostState::HostInit { .. }
+        ),
+        "with the alert cleared the host should leave DPUInit, got {:?}",
+        host_machine.current_state()
     );
 }
 
