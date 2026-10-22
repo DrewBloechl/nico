@@ -14,7 +14,7 @@ use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
-use super::{acknowledge, get_or_create_site_id, insert, latest, load, lock_binding};
+use super::{acknowledge, insert, latest, load, lock_binding};
 use crate::DatabaseError;
 use crate::resource_pool::binding::bind_or_verify;
 use crate::test_support::postgres::wait_for_blocked_query;
@@ -33,40 +33,6 @@ async fn new_binding(txn: &mut PgConnection, name: &str) -> eyre::Result<Resourc
         },
     )
     .await?)
-}
-
-/// Replicas that race to initialize the site must adopt the committed UUID.
-#[crate::sqlx_test]
-async fn concurrent_creators_share_the_committed_site_identity(pool: PgPool) -> eyre::Result<()> {
-    let mut first_txn = pool.begin().await?;
-    let first = get_or_create_site_id(&mut first_txn).await?;
-    let first_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *first_txn)
-        .await?;
-    let mut second_txn = pool.begin().await?;
-
-    let second_identity = async {
-        let second = get_or_create_site_id(&mut second_txn).await?;
-        second_txn.commit().await?;
-        Ok::<_, eyre::Report>(second)
-    };
-    let commit_first = async {
-        // Make the losing INSERT wait so its later SELECT must see the commit.
-        wait_for_blocked_query(&pool, first_pid, "INSERT INTO resource_pool_site").await;
-        first_txn.commit().await?;
-        Ok::<_, eyre::Report>(())
-    };
-    let (second, ()) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::try_join!(second_identity, commit_first)
-    })
-    .await??;
-    assert!(!first.is_nil());
-    assert_eq!(second, first);
-
-    let mut txn = pool.begin().await?;
-    assert_eq!(get_or_create_site_id(&mut txn).await?, first);
-    txn.commit().await?;
-    Ok(())
 }
 
 /// Database constraints reject each invalid write without replacing saved bytes.
@@ -273,9 +239,10 @@ async fn binding_lock_serializes_registration_and_allows_key_shares(
     Ok(())
 }
 
-/// Adding registration storage preserves existing pools and enforces one site row.
+/// The original registration migration preserves pools and requires
+/// `singleton = true` in the site table it creates.
 #[crate::sqlx_test]
-async fn migration_preserves_existing_pools_and_constrains_site_identity(
+async fn original_migration_preserves_pools_and_requires_true_singleton(
     pool: PgPool,
 ) -> eyre::Result<()> {
     crate::migrations::migrate_before(&pool, 20261021212048).await;
@@ -317,15 +284,16 @@ async fn migration_preserves_existing_pools_and_constrains_site_identity(
             .bind(Uuid::new_v4())
             .execute(&pool)
             .await
-            .expect_err("the singleton key cannot have a second value");
+            .expect_err("the singleton key must be true");
     assert_eq!(
         error
             .as_database_error()
             .and_then(|error| error.constraint()),
         Some("resource_pool_site_singleton_check")
     );
-    let mut txn = pool.begin().await?;
-    assert!(!get_or_create_site_id(&mut txn).await?.is_nil());
-    txn.commit().await?;
+    sqlx::query("INSERT INTO resource_pool_site (singleton, site_id) VALUES (true, $1)")
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await?;
     Ok(())
 }

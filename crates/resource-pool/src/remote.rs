@@ -68,8 +68,7 @@ struct RecoveryCursor {
 }
 
 /// `RemoteResourcePool` executes requests for one known provider authority.
-/// Clones share admission capacity and the provider's connection pool. The
-/// request supplies its saved site identity; construction never invents one.
+/// Clones share admission capacity and the provider's connection pool.
 #[derive(Clone)]
 pub struct RemoteResourcePool {
     pool: PgPool,

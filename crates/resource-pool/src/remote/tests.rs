@@ -89,7 +89,6 @@ impl Harness {
             request_id: Uuid::new_v4(),
             binding_id: binding.binding_id,
             pool: RemotePoolIdentity {
-                site_id: Uuid::new_v4(),
                 authority_id: binding.authority_id.clone(),
                 pool_id: pool().pool_id,
                 logical_pool: binding.pool_name,
@@ -122,7 +121,6 @@ impl Harness {
         client
             .define(v1::DefineRequest {
                 pool: Some(v1::PoolBinding {
-                    site_id: request.pool.site_id.to_string(),
                     authority_id: request.pool.authority_id.clone(),
                     pool_id: request.pool.pool_id.clone(),
                     binding_id: request.binding_id.to_string(),

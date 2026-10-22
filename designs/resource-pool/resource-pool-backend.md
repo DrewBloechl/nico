@@ -109,17 +109,21 @@ The binding contract distinguishes these identities:
 
 | Identity | Meaning |
 | --- | --- |
-| Site ID | Persisted identity shared by replicas of one deployment; not a pod name or process UUID |
 | Backend name | Operator-facing configuration reference |
 | Authority ID | Stable provider identity checked against the saved binding; independent of URL and credentials |
 | Provider pool ID | Stable identity of the provider's pool within that authority |
 | Logical pool name | Existing NICo pool identity used by typed handles |
-| Binding identity | Immutable association of site, logical pool, authority, and provider pool; `binding_id` on the wire |
+| Binding identity | Saved UUID for the logical pool and selected backend; the wire `PoolBinding` also names the resolved provider pool |
+| Request identity | Allocation UUID used as `request_id` on the wire; unique across all bindings within the issuing authority |
 | Eligibility revision | Immutable effective eligibility used by one operation; `eligibility_revision` on the wire |
+
+NICo generates a random UUID when saving a new binding. Allocation callers must generate a fresh random request UUID for each new attempt and reuse the saved UUID on retries across replicas. Deriving request IDs from an owner or slot can collide across deployments sharing a provider. The wire identifiers remain opaque strings; providers compare them exactly without requiring UUID syntax.
 
 An omitted pool `backend` selects Integrated. An unknown reference is an error, never a fallback. A named Integrated backend still uses the caller's database transaction. An omitted `remote_pool` resolves to the logical pool name; an explicit alias only changes provider lookup. Empty names are invalid.
 
-Resolve an alias with `Describe`, compare the returned authority and pool with any saved binding, and persist that identity before allocation. [P08](https://github.com/dsx-ai-factory/infra-controller/issues/7137) owns alias resolution and checks that the provider pool matches the saved binding before remote activation. P07 accepts the already resolved identity; it does not call `Describe`. Every later RPC uses the saved `PoolBinding`, including after a reconnect; the provider must reject an authority or pool it does not serve. The gRPC client does not issue an extra `Describe` behind each method call. An endpoint or credential update must preserve the saved authority and pool. Provider identity checks supplement authenticated TLS; a self-reported ID alone does not authenticate a service.
+The `resource_pool_binding` row saves the selected backend, expected authority, and configured provider alias before registration. For the first definition, [P08](https://github.com/dsx-ai-factory/infra-controller/issues/7137) resolves that alias with `Describe`, checks the returned authority and value domain against the binding, and saves the resolved provider pool ID in the definition's `PoolBinding`. Later registration attempts reuse that saved identity without resolving the alias again. P07 accepts the already resolved identity; it does not call `Describe`.
+
+Every later RPC uses the saved `PoolBinding`, including after a reconnect; the provider must reject an authority or pool it does not serve. The gRPC client does not issue an extra `Describe` behind each method call. An endpoint or credential update must preserve the saved authority and resolved pool. Provider identity checks supplement authenticated TLS; a self-reported ID alone does not authenticate a service.
 
 Retain issuing authority, provider pool, and binding identity on every remote allocation record. Lookup and release use that record even if configuration changes. Removal or redirection of a binding with unresolved requests, attached reservations, retained allocations, or unfinished cleanup is rejected. Terminal allocation records also keep their binding: the database foreign key prevents deleting it while those records remain.
 
@@ -176,11 +180,13 @@ For a new pool, require exactly one of a prefix or nonempty ranges, preserving e
 
 ### Eligibility Revisions and Growth
 
-[P08](https://github.com/dsx-ai-factory/infra-controller/issues/7137) persists an immutable effective eligibility revision before remote dispatch. It contains value kind, eligible intervals or prefixes, and assignment modes. Every allocation names that exact revision. `Define` compares the complete immutable request on replay; reusing a revision ID with different fields or declaration order is an error. The wire request does not require a separate content digest.
+[P08](https://github.com/dsx-ai-factory/infra-controller/issues/7137) saves each remote pool's effective definition in `resource_pool_registration`. A record contains the serialized `DefineRequest`, its revision number, and whether the provider has acknowledged it. The definition lists the value kind, eligible intervals or prefixes, and assignment modes, including explicit growth beyond the TOML seed. Each allocation names the revision it uses, and accepted definitions remain available to check older requests after growth.
+
+Registration records one definition revision, rather than a new row for every RPC attempt. `Define` compares the complete immutable request on replay; reusing a revision ID with different fields or declaration order is an error. The wire request does not require a separate content digest. An acknowledged definition does not reserve a value.
 
 The provider acknowledges that it can enforce the eligibility, without claiming that it owns or has provisioned every value in it. Provider API v1 requires all value kinds and selection modes. `Describe` reports whether `Stats` is supported; inventory creation is outside this API.
 
-Explicit growth saves a successor eligibility revision, obtains provider acknowledgement outside a database transaction, then conditionally activates that revision locally. Calls already dispatched keep their previous revision. If the `Define` reply is lost, repeat it with the same revision identity. No local success is reported before acknowledgement and activation.
+Explicit growth saves a successor eligibility revision, obtains provider acknowledgement outside a database transaction, then records that acknowledgement locally. Calls already dispatched keep their previous revision. If the `Define` reply is lost, repeat it with the same revision identity. No local success is reported before the acknowledgement is saved.
 
 Growth adds eligibility; it does not move existing values between assignment partitions or promise new provider capacity. Reject unsupported operations and invalid mixed-pool batches before mutations. Multi-authority growth cannot promise a distributed atomic commit; its administrative contract must report recoverable progress or reject that batch before dispatch.
 
@@ -212,7 +218,7 @@ The records must satisfy these requirements. [P06: allocation persistence](https
 
 | Stored Information | Required Contents |
 | --- | --- |
-| Binding | Stable site, logical pool, authority, provider pool, binding identity, and effective eligibility revision |
+| Binding and definition | The binding saves the logical pool, authority, configured provider alias, and binding UUID; its saved definitions contain the resolved provider pool ID and eligibility revisions |
 | Allocation record | UUID, logical pool, owner, lifecycle state, timestamps, and details for its Integrated or remote source |
 | Remote request, within its allocation record | The allocation UUID also identifies the provider request; immutable inputs retain the binding, eligibility revision, slot, generation, and completion authority |
 | Assignment | Allocation handle, typed value, assignment mode, and associated immutable policy payload; the saved request identifies the issuing authority and provider pool |
@@ -272,6 +278,8 @@ Reacquiring a work lease does not generate a new reservation identity. Reconcile
 
 Every RPC has a dedicated request and response message, such as `AllocateRequest` and `AllocateResponse`. Shared payloads sit inside those responses: `allocation` for allocation and lookup, `stats` for statistics. `DefineResponse` is empty. `PoolBinding` names the logical NICo pool and its provider backing; `OperationIdentity` adds the request ID. `Recover` and `Cancel` accept that identity in `operation_identity` and return the same identity alongside `operation_status`, including when recovery reports `unknown`.
 
+Within an authority, a request ID identifies one allocation attempt across all bindings. The provider compares the saved operation on replay, so reusing that ID with a different binding or other changed inputs returns `AlreadyExists`.
+
 Provider operations must be linearizable per operation identity. `Cancel` and allocation share the same durable serialization point. When `Cancel` arrives first, a later `Allocate` or `AllocateExact` observes its terminal tombstone. When allocation wins first, `Cancel` removes that reservation and its exclusively owned provisioning before acknowledging terminal cancellation.
 
 `Cancel` can return `pending` while the provider continues cleanup for the same request. Core keeps `CancelRequested` and repeats `Cancel` with the original identity. When the reply is `pending`, Core checks `Recover` for completed cleanup. It stops after `cancelled` or `released`. A `pending` recovery reply does not distinguish allocation still running from cancellation already accepted, so repeating `Cancel` makes both cases safe. The provider must continue accepted cleanup even without another call. A lost `Cancel` or `Release` reply is ambiguous; Core keeps the saved cleanup intent and repeats the same conditional operation.
@@ -282,15 +290,17 @@ Allocation replay returns the original ready assignment. After cancellation or r
 
 ### Retention and Reuse
 
-Version 1 requires durable terminal tombstones for the lifetime of the site and authority namespace. There is no time-based tombstone eviction, Forget operation, or automatic namespace reuse. This deliberately avoids relying on an unproved maximum network delay or retry horizon.
+Version 1 keeps terminal tombstones for the lifetime of the issuing authority. There is no time-based tombstone eviction, Forget operation, or request ID reuse within that authority. This deliberately avoids relying on an unproved maximum network delay or retry horizon.
 
 The provider can compact terminal records to the complete binding and operation identity, immutable request digest, and terminal state, provided it still rejects conflicting requests and cannot recreate work. A failed result retains its error code and message; an active allocation retains its complete assignment. Core retains the corresponding terminal identity and audit linkage. Bound active work and page terminal history; do not load all historical operations into memory.
 
-A future retirement protocol can permit garbage collection only after fencing the namespace against all old requests, credentials, and restored clients. Provider disaster recovery must preserve reservation and tombstone durability or stop allocation until reconciliation establishes it.
+A future retirement protocol can permit garbage collection only after blocking old requests to the issuing authority, including requests from restored clients using old credentials. Provider disaster recovery must preserve reservation and tombstone durability or stop allocation until reconciliation establishes it.
 
-Ordinary process restart uses the current durable database. Restoring an older database requires a separate offline recovery procedure. P06 preserves the operation identities, and [P07: execution and recovery](https://github.com/dsx-ai-factory/infra-controller/issues/7136) resumes work against that current database. [P11: Exercise VPC allocation through the remote backend coordinator](https://github.com/dsx-ai-factory/infra-controller/issues/7140) must establish the stable production site identity and prevent dispatch before it is available. The v2.5 P25 activation task owns the offline restore procedure and its end-to-end proof; activation remains blocked until that work is complete. Stop and fence every original writer, invalidate its provider access, and establish that accepted in-flight requests can no longer change the reconciled state. A provider that cannot establish that boundary keeps the site offline. Starting a live clone with the original site identity and credentials is unsupported; a database-local ID cannot distinguish that clone from a legitimate replica.
+Ordinary process restart uses the current database. Restoring an older database requires a separate offline recovery procedure. P06 preserves the operation identities, and [P07: execution and recovery](https://github.com/dsx-ai-factory/infra-controller/issues/7136) resumes work against that current database. [P11: Exercise VPC allocation through the remote backend coordinator](https://github.com/dsx-ai-factory/infra-controller/issues/7140) must save the selected binding and allocation request before dispatch. The v2.5 P25 activation task owns the offline restore procedure and its end-to-end proof; activation remains blocked until that work is complete. Stop and fence every original writer, invalidate its provider access, and establish that accepted in-flight requests can no longer change the reconciled state. A provider that cannot establish that boundary keeps the deployment offline. Starting a live clone with the original binding and request IDs and credentials is unsupported; database-local IDs cannot distinguish that clone from a legitimate replica.
 
-Before resuming provider dispatch, entity use, or DPU configuration publication, reconcile all Pending, Attached, retained, and cleanup records with their original provider identities. Matching handles can resume; missing, released, reissued, or conflicting handles quarantine their consumers until repaired and drained as needed. Never render a stale Attached VNI merely because the backup contains it. Provider reservations absent from the backup require an authoritative ownership audit before adoption or cleanup; absence from restored Core state is not cancellation authority. P25 must prove this fence and reconciliation procedure against the integrated Core/REST consumers before enabling remote pools. A clone used as a new site needs a new identity and may not replay or claim the original site's operations or handles.
+Before resuming provider dispatch, entity use, or DPU configuration publication, reconcile all Pending, Attached, retained, and cleanup records with their original provider identities. Matching handles can resume; missing, released, reissued, or conflicting handles quarantine their consumers until repaired and drained as needed. Never render a stale Attached VNI merely because the backup contains it. Provider reservations absent from the backup require an authoritative ownership audit before adoption or cleanup; absence from restored Core state is not cancellation authority. P25 must prove this fence and reconciliation procedure against the integrated Core/REST consumers before enabling remote pools.
+
+A clone used as a new deployment needs new bindings and request IDs and may not replay or claim the original deployment's operations or handles. The library provides no automatic ID rotation or restore mechanism; existing records keep their original identities for recovery.
 
 Handles identify allocation instances, not values. If value 101 is released and reissued under a new handle, releasing the old handle is an idempotent terminal result or an explicit ownership conflict. It must never release the new reservation, even if the owner string is identical.
 
@@ -405,6 +415,8 @@ These cases are required conformance and production-path proofs. Local transacti
 | REST rolls back after Core commits | Reconcile local entity and retain dependent IPAM hold | Reuse of a prefix still attached in Core |
 
 ## Compatibility and Activation
+
+The production registry rejects remote selection before provider calls. Clients and providers must adopt the binding and request identity contract together before remote activation. Removed protobuf field numbers and names remain reserved, but this does not make a provider that requires a site ID compatible with the updated API.
 
 Integrated deployments retain their configuration, inventory values, owner checks, caller rollback, generated RTs, API fields, and metric contracts. The allocation-record schema is additive. Older binaries do not maintain these records; a release by an older binary can leave a record that prevents later reallocation. Running or rolling back to those binaries after this migration requires separate record repair and is outside this feature's supported upgrade path. No compatibility triggers or catch-up process are included.
 

@@ -31,7 +31,6 @@ pub(super) fn operation(
 
     Ok(v1::AllocationOperation {
         pool: Some(v1::PoolBinding {
-            site_id: request.site_id.to_string(),
             authority_id: request.authority_id.clone(),
             pool_id: request.pool_id.clone(),
             binding_id: binding_id.to_string(),
@@ -64,7 +63,6 @@ pub(super) fn operation_id(
 
     Ok(v1::OperationIdentity {
         pool: Some(v1::PoolBinding {
-            site_id: request.site_id.to_string(),
             authority_id: request.authority_id.clone(),
             pool_id: request.pool_id.clone(),
             binding_id: binding_id.to_string(),
@@ -271,7 +269,6 @@ mod tests {
             source: AllocationSource::Remote {
                 binding_id: Uuid::from_u128(2),
                 request: Box::new(RemoteAllocationParameters {
-                    site_id: Uuid::from_u128(3),
                     authority_id: "fabric-authority".into(),
                     pool_id: "fabric-vnis".into(),
                     slot: "service-vni".into(),
@@ -294,7 +291,6 @@ mod tests {
         // Keep the expected wire values independent of the conversion helpers,
         // so omitted or swapped fields cannot pass by matching the same mistake.
         let expected_pool = v1::PoolBinding {
-            site_id: "00000000-0000-0000-0000-000000000003".into(),
             authority_id: "fabric-authority".into(),
             pool_id: "fabric-vnis".into(),
             binding_id: "00000000-0000-0000-0000-000000000002".into(),
@@ -354,7 +350,6 @@ mod tests {
                 source: AllocationSource::Remote {
                     binding_id: Uuid::new_v4(),
                     request: Box::new(RemoteAllocationParameters {
-                        site_id: Uuid::new_v4(),
                         authority_id: "fabric".into(),
                         pool_id: "vni".into(),
                         slot: "vni".into(),

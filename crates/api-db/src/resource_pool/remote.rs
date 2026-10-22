@@ -69,8 +69,8 @@ pub struct OperationNotCurrent;
 /// `GenerationExists` or `SlotInUse` can be returned.
 /// Use a separate transaction from entity attachment. This helper checks the
 /// binding's backend kind, logical pool, and authority. Provider admission,
-/// eligibility, value domain, stable site identity, and resolved provider pool
-/// remain the caller's responsibility.
+/// eligibility, value domain, and resolved provider pool remain the caller's
+/// responsibility.
 /// String inputs must satisfy the text contract in [`model::resource_pool::remote`].
 ///
 /// This write does not include an entity or controller desire write. Persist any
@@ -81,7 +81,6 @@ pub async fn begin(
     completion_authority: &CompletionAuthority,
 ) -> Result<ResourcePoolAllocation, RemoteAllocationError> {
     let parameters = RemoteAllocationParameters {
-        site_id: request.pool.site_id,
         authority_id: request.pool.authority_id.clone(),
         pool_id: request.pool.pool_id.clone(),
         slot: request.owner.slot.clone(),
@@ -268,7 +267,7 @@ pub async fn cleanup_backlog(db: impl DbReader<'_>) -> Result<i64, DatabaseError
 /// and confirm cleanup before starting another generation.
 /// Commit this write separately if the result must survive an entity rollback.
 ///
-/// Before saving, the caller must validate the response's echoed request, site,
+/// Before saving, the caller must validate the response's echoed request, binding,
 /// authority, and provider pool against the saved request. For an allocation,
 /// also check its owner and eligibility revision. `AllocationResult` does not
 /// contain those echoed fields. Save only a validated assignment. If it cannot

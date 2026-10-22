@@ -24,7 +24,6 @@ use model::resource_pool::registration::ResourcePoolRegistration;
 use model::resource_pool::{ResourcePoolBackendKind, ResourcePoolBinding};
 use prost::Message;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::grpc::{GrpcResourcePoolBackend, GrpcResourcePoolError, MAX_MESSAGE_BYTES};
 use crate::transaction::database_transaction;
@@ -101,7 +100,7 @@ pub async fn define(
                 .map_err(|error| ValueConversionError::Wire(Box::new(error)))?;
         }
 
-        // Every replica must use the same site ID, including its first Describe.
+        // Reject a stale binding before Describe so it never reaches the provider.
         let mut txn = database_transaction(database).await?;
         if bindings::load(txn.as_pgconn(), &binding.pool_name)
             .await?
@@ -112,12 +111,11 @@ pub async fn define(
                 "binding differs from its saved selection",
             ));
         }
-        let site_id = storage::get_or_create_site_id(txn.as_pgconn()).await?;
         let existing = storage::latest(txn.as_pgconn(), binding.binding_id).await?;
         txn.commit().await?;
 
         let pool = if let Some(existing) = existing {
-            decode(&existing, binding, Some(site_id))?
+            decode(&existing, binding)?
                 .pool
                 .ok_or(RegistrationError::Invalid("saved definition has no pool"))?
         } else {
@@ -126,7 +124,6 @@ pub async fn define(
             }
             // Keep the large gRPC future out of the surrounding async stack.
             let description = Box::pin(backend.describe(v1::DescribeRequest {
-                site_id: site_id.to_string(),
                 pool_alias: binding.remote_pool.clone(),
             }))
             .await?;
@@ -138,7 +135,6 @@ pub async fn define(
                 ));
             }
             v1::PoolBinding {
-                site_id: site_id.to_string(),
                 authority_id: description.authority_id,
                 pool_id: description.pool_id,
                 binding_id: binding.binding_id.to_string(),
@@ -172,7 +168,7 @@ pub async fn define(
 /// an RPC. Resuming an older revision never makes it the current definition.
 /// The 30-second budget includes database waits and the provider call; timeout or
 /// cancellation does not prove acknowledgement failed to commit. Retry this same
-/// revision to read its saved state. The saved request supplies the site identity.
+/// revision to read its saved state.
 pub async fn resume(
     database: &PgPool,
     backend: &GrpcResourcePoolBackend,
@@ -210,7 +206,7 @@ pub async fn accepted(
         txn.commit().await?;
         stored
             .filter(|stored| stored.accepted)
-            .map(|stored| decode(&stored, binding, None))
+            .map(|stored| decode(&stored, binding))
             .transpose()
     })
     .await
@@ -233,7 +229,7 @@ fn prepare(
     eligibility: &ResourcePoolEligibility,
 ) -> Result<PreparedRegistration, RegistrationError> {
     let revision = if let Some(latest) = latest {
-        let prior = decode(&latest, binding, None)?;
+        let prior = decode(&latest, binding)?;
         if prior.pool.as_ref() != Some(&pool) {
             return Err(RegistrationError::Invalid("resolved provider pool changed"));
         }
@@ -291,7 +287,7 @@ async fn send(
     binding: &ResourcePoolBinding,
     stored: ResourcePoolRegistration,
 ) -> Result<v1::DefineRequest, RegistrationError> {
-    let request = decode(&stored, binding, None)?;
+    let request = decode(&stored, binding)?;
     if !stored.accepted {
         // Keep the large gRPC future out of the surrounding async stack.
         Box::pin(backend.define(request.clone())).await?;
@@ -303,12 +299,9 @@ async fn send(
 }
 
 /// `decode` checks the saved request against the row and selected pool before use.
-/// A supplied site ID additionally checks first-use/redefinition consistency.
-/// Replay and lookup use the identity already saved in the immutable request.
 fn decode(
     stored: &ResourcePoolRegistration,
     binding: &ResourcePoolBinding,
-    site_id: Option<Uuid>,
 ) -> Result<v1::DefineRequest, RegistrationError> {
     let request = v1::DefineRequest::decode(stored.request.as_slice())?;
     let pool = request
@@ -322,8 +315,6 @@ fn decode(
         || pool.logical_pool != binding.pool_name
         || pool.authority_id != binding.authority_id
         || pool.pool_id.is_empty()
-        || Uuid::parse_str(&pool.site_id).is_err()
-        || site_id.is_some_and(|site_id| pool.site_id != site_id.to_string())
     {
         return Err(RegistrationError::Invalid(
             "saved definition does not match its pool binding",

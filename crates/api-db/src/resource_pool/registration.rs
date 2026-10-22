@@ -15,27 +15,6 @@ use uuid::Uuid;
 use crate::DatabaseError;
 use crate::db_read::DbReader;
 
-/// `get_or_create_site_id` returns the shared site UUID, creating it in the caller's
-/// transaction if absent. Commit before using a newly created UUID remotely.
-/// Concurrent creators return the UUID from the transaction that commits first.
-pub async fn get_or_create_site_id(txn: &mut PgConnection) -> Result<Uuid, DatabaseError> {
-    let query = "INSERT INTO resource_pool_site (singleton, site_id)
-        VALUES (true, $1) ON CONFLICT (singleton) DO NOTHING";
-    sqlx::query(query)
-        .bind(Uuid::new_v4())
-        .execute(&mut *txn)
-        .await
-        .map_err(|error| DatabaseError::query(query, error))?;
-
-    // A competing insert can commit while ours waits. A separate statement
-    // lets READ COMMITTED see that winner's UUID.
-    let query = "SELECT site_id FROM resource_pool_site WHERE singleton";
-    sqlx::query_scalar(query)
-        .fetch_one(txn)
-        .await
-        .map_err(|error| DatabaseError::query(query, error))
-}
-
 /// `lock_binding` returns a binding locked until the caller's transaction ends.
 /// The lock serializes registration preparation while allowing foreign-key reads.
 /// Missing bindings return `NotFoundError`; callers validate the loaded binding.

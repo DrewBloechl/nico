@@ -652,7 +652,6 @@ pub(crate) async fn bounded<T>(future: impl Future<Output = T>) -> T {
 
 pub(crate) fn pool() -> PoolBinding {
     PoolBinding {
-        site_id: "test-site".into(),
         authority_id: "test-provider".into(),
         pool_id: "provider-vnis".into(),
         binding_id: "vpc-binding".into(),

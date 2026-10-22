@@ -34,11 +34,7 @@ accepts `AllocateRequest` and returns `AllocateResponse`, whose `allocation`
 field contains the assignment. Even `DefineResponse` has its own message, so
 we can add fields later without changing the RPC's response type.
 
-`PoolBinding` identifies the NICo pool and the provider pool backing it.
-`OperationIdentity` pairs that binding with a request ID. `Recover` and `Cancel`
-accept it in their request's `operation_identity` field and return it alongside
-`operation_status`. The returned identity matches the request, including when
-`Recover` reports `unknown`.
+`PoolBinding` identifies the NICo pool and the provider pool backing it. NICo assigns a random binding UUID. Its allocation callers generate a fresh random UUID for each new attempt, then save and reuse it on retries. Request IDs must not be derived from owners or slots, since those values can repeat across deployments sharing a provider. `OperationIdentity` pairs the binding with the request ID. `Recover` and `Cancel` accept it in their request's `operation_identity` field and return it alongside `operation_status`. The returned identity matches the request, including when `Recover` reports `unknown`.
 
 Identifiers, aliases, owner fields, revision IDs, and failure messages must be nonempty UTF-8 without NUL (`U+0000`). NICo preserves their case, whitespace, and other Unicode characters exactly. There is no per-field length limit; transport message limits still apply.
 
@@ -58,10 +54,9 @@ limits such as VNI width.
 
 ## Definitions and growth
 
-`Define` describes effective eligibility, including values added by explicit
-growth. It is not a copy of the original TOML seed snapshot, which does not
-record later growth. Each revision is immutable and must be acknowledged before
-an allocation can use it.
+`Define` describes the values NICo may allocate, including values added by explicit growth. The original TOML seed snapshot does not record that later growth. Each definition revision is immutable and must be acknowledged before an allocation can use it. Defining a pool does not allocate a value.
+
+Core's [`registration` module](../resource-pool/src/registration.rs) saves each effective definition in `resource_pool_registration`, together with its revision and whether the provider has acknowledged it. A lost reply reuses that saved definition; it does not create another revision. Accepted definitions stay available so an allocation recovered after growth can still be checked against the values allowed when it started.
 
 Growth names the previous revision and appends declarations to its existing
 ordered list. Earlier declarations determine the assignment mode when entries
@@ -86,22 +81,11 @@ apply Integrated's `MAX_POOL_SIZE` inventory limit or enumerate values.
 
 ## Lost replies and delayed requests
 
-Within one authority, `(site_id, request_id)` identifies an allocation attempt.
-The provider keeps enough immutable request information to reject changed inputs,
-either the inputs themselves or an equivalent digest. Active allocations retain
-the complete assignment. Replaying a request returns the same value, allocation
-ID, and optional route target policy. Different slots let one entity own several
-allocations without using its owner ID as a retry key.
+Within one authority, `request_id` identifies an allocation attempt across all bindings. The provider saves the request inputs or an equivalent digest so it can reject changes, including a different binding. Active allocations retain the complete assignment. Replaying a request returns the same value, allocation ID, and optional route target policy. Different slots let one entity own several allocations without using its owner ID as a retry key.
 
 `Recover` returning `unknown` only means the provider has not observed the request. For example, an allocation request might still arrive after that lookup. `Cancel` records that the attempt cannot allocate, and acknowledges terminal cancellation only after any allocation and its owned provisioning have been removed. If cleanup returns `pending`, the provider continues it for the same request. NICo repeats `Cancel` with the original identity and, when the reply is `pending`, checks `Recover` to see whether cleanup has finished. It stops only after observing `cancelled` or `released`. A delayed allocation request then observes the terminal state.
 
-`Release` also makes the original request terminal. Its allocation ID identifies
-one reservation, so retrying an old release cannot free a later assignment of
-the same value, even to the same owner. Version 1 keeps terminal request records
-for the lifetime of the site and authority namespace; it has no expiry or
-forget operation. Compacted terminal records still need the binding, input
-conflict checks, and complete terminal result, including a saved failure's code
-and message.
+`Release` also makes the original request terminal. Its allocation ID identifies one reservation, so retrying an old release cannot free a later assignment of the same value, even to the same owner. Version 1 keeps terminal request records for the lifetime of the issuing authority; it has no expiry or forget operation. Compacted terminal records still need the binding, input conflict checks, and complete terminal result, including a saved failure's code and message.
 
 Replaying `Allocate` or `AllocateExact` after cancellation or release returns
 `FailedPrecondition`; `Recover` identifies the terminal state. A definite
@@ -114,6 +98,10 @@ is empty. Unsupported statistics return `Unimplemented`, and unavailable
 statistics return `Unavailable`, rather than a successful zero count.
 
 ## Conformance and implementation boundaries
+
+The production registry rejects remote pool selection while [P11](https://github.com/dsx-ai-factory/infra-controller/issues/7140) adds the startup and VPC integration below the v2.4 gate. Clients and providers must use the same identity contract before remote activation; reserving removed protobuf fields does not make a provider that requires a site ID compatible with this API.
+
+Older stored definitions remain readable and keep their original database bytes. Decoding ignores the removed field, so a retry encodes the remaining fields on the wire rather than reproducing those stored bytes.
 
 The `test-support` feature exposes an in-memory `LocalProvider` and reusable conformance scenarios against the generated service trait. The fixture uses a finite inventory and retains its request history only while it is alive. The suite uses it to check replay, conditional release, and both sequential arrival orders for allocation and cancellation. Cleanup completes immediately by default. `LocalProvider::with_pending_cancellation` keeps the reservation and simulated provisioning until the test calls `complete_cleanup`. This lets recovery tests observe unfinished cleanup across coordinator restarts. Running the suite requires a Tokio runtime with time enabled; testing a remote client requires an adapter to the generated service trait.
 

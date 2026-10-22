@@ -12,7 +12,7 @@ use model::resource_pool::registration::ResourcePoolRegistration;
 use model::resource_pool::{
     ResourcePoolBackendKind, ResourcePoolBinding, ResourcePoolSelection, ResourcePoolValueDomain,
 };
-use prost::Message;
+use prost::{Message, encoding};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use tonic::Code;
@@ -37,8 +37,8 @@ struct Harness {
 }
 
 impl Harness {
-    /// Save only the binding so each test exercises registration's own site-ID
-    /// creation and request persistence.
+    /// Save the binding without any pool definitions so registration must write
+    /// its own request.
     async fn new(database: PgPool, fault: Fault) -> Self {
         let mut txn = database.begin().await.expect("begin binding transaction");
         let binding = binding::bind_or_verify(&mut txn, &selection())
@@ -82,7 +82,7 @@ impl Harness {
     }
 }
 
-/// Select the shared fixture's provider while leaving site and binding UUIDs to Core.
+/// Select the shared fixture's provider while leaving the binding UUID to Core.
 fn selection() -> ResourcePoolSelection {
     ResourcePoolSelection {
         pool_name: pool().logical_pool,
@@ -117,14 +117,19 @@ fn eligibility() -> ResourcePoolEligibility {
     }
 }
 
-/// A provider must never receive a new site identity before other replicas can read it.
+/// Describe resolves the configured alias while leaving the binding lock and
+/// only database connection available. The definition keeps the saved binding UUID.
 #[carbide_macros::sqlx_test]
-async fn site_identity_is_committed_before_describe(database: PgPool) -> TestResult {
+async fn describe_uses_the_alias_without_holding_the_binding_lock(database: PgPool) -> TestResult {
     let gate = Arc::new(Gate::default());
     let harness = Harness::new(database, Fault::StallDescription(gate.clone())).await;
+    let single_connection = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(harness.database.connect_options().as_ref().clone())
+        .await?;
     let eligibility = eligibility();
     let mut pending = Box::pin(define(
-        &harness.database,
+        &single_connection,
         &harness.backend,
         &harness.binding,
         None,
@@ -134,10 +139,6 @@ async fn site_identity_is_committed_before_describe(database: PgPool) -> TestRes
         result = &mut pending => panic!("definition passed the description gate: {result:?}"),
         () = bounded(gate.entered.notified()) => {}
     }
-    // A separate connection must see the identity while Describe is blocked.
-    let site_id: Uuid = sqlx::query_scalar("SELECT site_id FROM resource_pool_site")
-        .fetch_one(&harness.database)
-        .await?;
     assert_eq!(
         *harness
             .provider
@@ -145,7 +146,6 @@ async fn site_identity_is_committed_before_describe(database: PgPool) -> TestRes
             .lock()
             .expect("description requests lock"),
         vec![v1::DescribeRequest {
-            site_id: site_id.to_string(),
             pool_alias: harness.binding.remote_pool.clone(),
         }]
     );
@@ -161,24 +161,26 @@ async fn site_identity_is_committed_before_describe(database: PgPool) -> TestRes
             .is_none()
     );
     assert!(harness.requests().is_empty());
+    let value: i32 = bounded(sqlx::query_scalar("SELECT 1").fetch_one(&single_connection)).await?;
+    assert_eq!(value, 1);
     gate.release.notify_one();
     let request = bounded(pending).await?;
     assert_eq!(
         request.pool,
         Some(v1::PoolBinding {
-            site_id: site_id.to_string(),
             authority_id: harness.binding.authority_id.clone(),
             pool_id: pool().pool_id,
             binding_id: harness.binding.binding_id.to_string(),
             logical_pool: harness.binding.pool_name.clone(),
         })
     );
+    single_connection.close().await;
     harness.stop().await;
     Ok(())
 }
 
-/// Define must see durable intent while leaving the binding lock and the
-/// service's only database connection available for unrelated work.
+/// The saved request must be committed before provider Define runs, with the
+/// binding lock and only database connection free for unrelated work.
 #[carbide_macros::sqlx_test]
 async fn pending_definition_is_committed_before_provider_work(database: PgPool) -> TestResult {
     let gate = Arc::new(Gate::default());
@@ -277,7 +279,9 @@ async fn initial_registration_reuses_the_winner_after_describe(database: PgPool)
 }
 
 /// An ambiguous Define stays unavailable to allocation callers until a restarted
-/// client receives and saves acknowledgement of the original request.
+/// client receives and saves acknowledgement. The database keeps the original
+/// request bytes, including the removed site field. Decoding and sending that
+/// request again omits the site field from the wire message.
 #[carbide_macros::sqlx_test]
 async fn lost_define_reply_resumes_saved_bytes_after_client_restart(
     database: PgPool,
@@ -297,11 +301,28 @@ async fn lost_define_reply_resumes_saved_bytes_after_client_restart(
         matches!(error, RegistrationError::Provider(GrpcResourcePoolError::Rpc(error))
         if error.code() == Code::Unavailable)
     );
-    let pending = harness.latest().await;
+    let mut pending = harness.latest().await;
     assert_eq!(pending.revision, 1);
     assert!(!pending.accepted);
     let request = v1::DefineRequest::decode(pending.request.as_slice())?;
     assert_eq!(harness.requests(), vec![request.clone()]);
+
+    // Recreate a saved definition from before `PoolBinding.site_id` was removed.
+    // Protobuf should ignore that field without requiring a database rewrite.
+    let mut old_pool = request.pool.as_ref().expect("request pool").encode_to_vec();
+    encoding::string::encode(1, &Uuid::new_v4().to_string(), &mut old_pool);
+    let mut old_request = request.clone();
+    old_request.pool = None;
+    pending.request = old_request.encode_to_vec();
+    encoding::bytes::encode(1, &old_pool, &mut pending.request);
+    sqlx::query(
+        "UPDATE resource_pool_registration SET request = $1 WHERE binding_id = $2 AND revision = 1",
+    )
+    .bind(&pending.request)
+    .bind(harness.binding.binding_id)
+    .execute(&harness.database)
+    .await?;
+
     // Stats resolves a saved provider definition, proving the lost reply
     // happened after acceptance rather than before the provider applied it.
     bounded(harness.backend.stats(v1::StatsRequest {
@@ -818,7 +839,6 @@ fn preparation_obeys_the_encoded_message_limit() {
     for size in [MAX_MESSAGE_BYTES, MAX_MESSAGE_BYTES + 1] {
         let mut request = v1::DefineRequest {
             pool: Some(v1::PoolBinding {
-                site_id: Uuid::new_v4().to_string(),
                 authority_id: binding.authority_id.clone(),
                 pool_id: binding.remote_pool.clone(),
                 binding_id: binding.binding_id.to_string(),

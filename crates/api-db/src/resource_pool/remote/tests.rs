@@ -88,7 +88,6 @@ fn assert_saved_request(
     assert_eq!(
         saved.as_ref(),
         &RemoteAllocationParameters {
-            site_id: request.pool.site_id,
             authority_id: request.pool.authority_id.clone(),
             pool_id: request.pool.pool_id.clone(),
             slot: request.owner.slot.clone(),
@@ -143,7 +142,6 @@ async fn new_request(
         request_id: Uuid::new_v4(),
         binding_id: binding.binding_id,
         pool: RemotePoolIdentity {
-            site_id: Uuid::new_v4(),
             authority_id: binding.authority_id,
             pool_id: "provider-pool-17".to_owned(),
             logical_pool: binding.pool_name,
@@ -388,11 +386,27 @@ async fn saved_request_and_result_survive_entity_rollback(pool: PgPool) -> eyre:
     Ok(())
 }
 
+/// Saved requests remain replayable when their JSON includes the removed site
+/// field, while every remaining request input must still match.
 #[crate::sqlx_test]
 async fn request_replay_rejects_changed_inputs(pool: PgPool) -> eyre::Result<()> {
     let request = new_request(&pool, "vpc-vni", ResourcePoolValueDomain::Integer).await?;
     let authority = controller_authority();
     let saved = begin(&pool, &request, &authority).await?;
+    assert_eq!(begin(&pool, &request, &authority).await?, saved);
+
+    // Rows written before site identity was removed must not need a backfill
+    // before we can retry them or reject a changed request.
+    let updated = sqlx::query(
+        "UPDATE resource_pool_allocations
+         SET remote_request = remote_request || jsonb_build_object('site_id', $2::text)
+         WHERE allocation_id = $1",
+    )
+    .bind(request.request_id)
+    .bind(Uuid::new_v4().to_string())
+    .execute(&pool)
+    .await?;
+    assert_eq!(updated.rows_affected(), 1);
     assert_eq!(begin(&pool, &request, &authority).await?, saved);
 
     let mut provider = request.clone();
@@ -1962,7 +1976,6 @@ async fn opaque_provider_strings_survive_replay_release_and_recovery(
             request_id: Uuid::new_v4(),
             binding_id: binding.binding_id,
             pool: RemotePoolIdentity {
-                site_id: Uuid::new_v4(),
                 authority_id: identity.clone(),
                 pool_id: identity.clone(),
                 logical_pool: name.to_owned(),

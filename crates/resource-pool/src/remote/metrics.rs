@@ -114,7 +114,6 @@ mod tests {
         pool: PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut cleanup = Vec::new();
-        let site_id = Uuid::new_v4();
         for (name, authority, states) in [
             (
                 "cleanup-a",
@@ -141,7 +140,6 @@ mod tests {
             )
             .await?;
             let parameters = RemoteAllocationParameters {
-                site_id,
                 authority_id: authority.into(),
                 pool_id: "vnis".into(),
                 slot: "vni".into(),
