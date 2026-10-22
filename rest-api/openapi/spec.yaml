@@ -23491,7 +23491,8 @@ components:
             whole disk, preferring one with an EFI partition to break a size tie.
             Partition aliases ending in `-part<digits>` are rejected.
             An empty stored value means the Site prefers a disk with an EFI partition,
-            then falls back to `/dev/nvme0n1` or `/dev/sda`.
+            then falls back to the first `/dev/nvme<controller>n<namespace>`,
+            `/dev/sd<letters>`, or `/dev/vd<letters>` whole disk in device-name order.
         rootFsId:
           type:
             - string
@@ -23881,8 +23882,9 @@ components:
             selects the smallest enumerated whole disk, preferring one with an EFI
             partition to break a size tie. Partition aliases ending in
             `-part<digits>` are rejected. When omitted, null, or empty on creation,
-            the Site prefers a disk with an EFI partition, then falls back to
-            `/dev/nvme0n1` or `/dev/sda`.
+            the Site prefers a disk with an EFI partition, then falls back to the first
+            `/dev/nvme<controller>n<namespace>`, `/dev/sd<letters>`, or
+            `/dev/vd<letters>` whole disk in device-name order.
         rootFsId:
           type:
             - string
@@ -24010,7 +24012,8 @@ components:
             `-part<digits>` are rejected. Omitting this field or sending null preserves
             the current value. Sending an explicit empty string clears the value and
             restores automatic selection: prefer a disk with an EFI partition, then
-            fall back to `/dev/nvme0n1` or `/dev/sda`.
+            fall back to the first `/dev/nvme<controller>n<namespace>`,
+            `/dev/sd<letters>`, or `/dev/vd<letters>` whole disk in device-name order.
         rootFsId:
           type:
             - string
