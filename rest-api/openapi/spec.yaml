@@ -8749,6 +8749,7 @@ paths:
                 With iPXE override and Ethernet/InfiniBand Interfaces:
                   value:
                     id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                    networkSecurityGroupPropagationDetails: null
                     name: spark-monitor-1
                     description: Node for monitoring Spark
                     tenantId: f97df110-f4de-492e-8849-4a6af68026b0
@@ -8836,6 +8837,7 @@ paths:
                 With DPU Extension Service Deployments:
                   value:
                     id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                    networkSecurityGroupPropagationDetails: null
                     name: spark-monitor-1
                     description: Node for monitoring Spark
                     tenantId: f97df110-f4de-492e-8849-4a6af68026b0
@@ -9120,6 +9122,7 @@ paths:
                 Batch created Instances:
                   value:
                     - id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                      networkSecurityGroupPropagationDetails: null
                       name: worker-abc123
                       description: Worker node for distributed training
                       tenantId: f97df110-f4de-492e-8849-4a6af68026b0
@@ -9134,6 +9137,7 @@ paths:
                       created: '2019-08-24T14:15:22Z'
                       updated: '2019-08-24T14:15:22Z'
                     - id: 85c5e7b2-89f1-4e32-9d3a-8e1f5a2c7d90
+                      networkSecurityGroupPropagationDetails: null
                       name: worker-def456
                       description: Worker node for distributed training
                       tenantId: f97df110-f4de-492e-8849-4a6af68026b0
@@ -9443,6 +9447,7 @@ paths:
                 example-1:
                   value:
                     id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                    networkSecurityGroupPropagationDetails: null
                     name: spark-monitor-2
                     description: Spark Monitor Node 1
                     tenantId: f97df110-f4de-492e-8849-4a6af68026b0
@@ -24430,6 +24435,9 @@ components:
     Instance:
       title: Instance
       type: object
+      x-go-has-nullable-required-properties: true
+      x-go-nullable-required-properties:
+        - networkSecurityGroupPropagationDetails
       description: Instance is a baremetal Machine that has been provisioned for a Tenant
       examples:
         - id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -24553,6 +24561,7 @@ components:
           controllerInstanceId: null
           ipxeScript: null
           alwaysBootWithCustomIpxe: false
+          networkSecurityGroupPropagationDetails: null
           userData: null
           labels:
             region: portland
@@ -24679,8 +24688,10 @@ components:
             - 'null'
           description: External power provisioning profile associated with the Instance.
         networkSecurityGroupPropagationDetails:
-          $ref: '#/components/schemas/NetworkSecurityGroupPropagationDetails'
-          description: Propagation details for the attached Network Security Group
+          oneOf:
+            - $ref: '#/components/schemas/NetworkSecurityGroupPropagationDetails'
+            - type: 'null'
+          description: Network Security Group propagation details. Null when no details are available, including when no Network Security Group is attached or inherited.
         networkSecurityGroupInherited:
           type: boolean
           description: Indicates if the Network Security Group is inherited from VPC
@@ -24785,6 +24796,8 @@ components:
           description: 'Date/time when the Instance was last updated'
           format: date-time
           readOnly: true
+      required:
+        - networkSecurityGroupPropagationDetails
     InstanceStatus:
       title: InstanceStatus
       type: string
