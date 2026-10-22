@@ -129,10 +129,12 @@ jobs:
       name: promote-release-candidate
     steps:
       - name: Promotion approved
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           echo "✅ Promotion approved"
           echo "Promoting images from carbide-dev to carbide"
-          echo "Version: ${{ needs.prepare.outputs.version }}"
+          echo "Version: ${VERSION}"
           echo ""
           echo "Images to be promoted:"
           echo "  - nvmetal-carbide"
