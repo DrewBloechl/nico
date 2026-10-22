@@ -167,6 +167,8 @@ navigation:
           path: configuration/machine_identity.md
         - page: Secrets Storage
           path: configuration/secrets-storage.md
+        - page: KMIP KEK Provider
+          path: configuration/kmip-kek-provider.md
         - page: Credential Sources
           path: configuration/credential-sources.md
         - page: Host Naming

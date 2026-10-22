@@ -48,6 +48,7 @@ carbide-ib-fabric = { path = "../ib-fabric" }
 carbide-ib-partition-controller = { path = "../ib-partition-controller" }
 carbide-ipmi = { path = "../ipmi" }
 carbide-ipxe-renderer = { path = "../ipxe-renderer" }
+carbide-kmip = { path = "../kmip" }
 carbide-kms-provider = { path = "../kms-provider" }
 carbide-libmlx = { path = "../libmlx" }
 carbide-machine-controller = { path = "../machine-controller" }

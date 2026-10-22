@@ -81,6 +81,8 @@ If the site keeps credentials in Postgres (as detailed in [Secrets Storage](../c
 
 With an Integrated provider, export every Secret that holds key material your `[secrets.kms]` providers reference, including keys that are no longer routed but are still needed for older rows or older dumps, and store them with the Vault unseal keys. Copy a key supplied from a file or an inline value from its source instead.
 
+With a KMIP provider, the KEK lives only in the KMIP server. Back it up through that product's key backup procedure, and keep every key that retained dumps still reference until those dumps age out.
+
 The following command exports one Secret; repeat it for each:
 
 ```bash

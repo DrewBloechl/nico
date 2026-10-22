@@ -1881,10 +1881,18 @@ Each entry in `providers` is tagged by `type`. Unknown fields are rejected.
 
 | Field | Type | Default | Description |
 | ----- | ---- | ------- | ----------- |
-| `type` | `"integrated"` or `"transit"` | **required** | `integrated` holds key material in the NICo process; `transit` wraps and unwraps DEKs in Vault/OpenBao Transit so KEK material never leaves the KMS. |
+| `type` | `"integrated"`, `"transit"`, or `"kmip"` | **required** | `integrated` holds key material in the NICo process; `transit` wraps and unwraps DEKs in Vault/OpenBao Transit so KEK material never leaves the KMS; `kmip` wraps and unwraps DEKs with the Encrypt and Decrypt operations of a KMIP 1.4 server holding a non-exportable AES-256 key. |
 | `keys` (`integrated`) | `HashMap<String, KeySource>` | **required, non-empty** | Maps each `kek_id` to where its base64-encoded 256-bit key loads from: `{ env = "NAME" }`, `{ file = "/path" }`, or `{ value = "<base64>" }`. Each key must decode to exactly 32 bytes; a missing variable or unreadable file fails the boot, and a key file readable by group or others logs a warning. Inline `value` is development/test-only because the config is logged at startup and shown on the admin web page. |
 | `keys` (`transit`) | `Vec<String>` | **required** | Transit key names this provider answers for. |
 | `transit_mount` (`transit`) | `Option<String>` | `"transit"` | Secrets-engine mount path. Transit requires a static token in `VAULT_TOKEN`; the Kubernetes service-account login flow is not supported for Transit. |
+| `endpoint` (`kmip`) | `String` | **required** | `host:port` or `[v6-literal]:port` of the KMIP TLS listener; the host must be a DNS name or IP address, an IPv6 literal must be bracketed, and the port defaults to 5696 when omitted. |
+| `server_name` (`kmip`) | `Option<String>` | host part of `endpoint` | Name the server certificate must match. A DNS name is also sent as SNI; an IP address is matched against the certificate's IP SANs without SNI. |
+| `ca_bundle` (`kmip`) | `PathBuf` | **required** | PEM bundle of the CA certificates trusted to sign the server certificate; system roots are never used. |
+| `client_cert` (`kmip`) | `PathBuf` | **required** | PEM client certificate chain presented to the server. |
+| `client_key` (`kmip`) | `PathBuf` | **required** | PEM private key (PKCS#8, PKCS#1, or SEC1) for `client_cert`. |
+| `keys` (`kmip`) | `HashMap<String, String>` | **required, non-empty** | Maps each `kek_id` to the KMIP Unique Identifier of an existing, Active AES-256 key with Encrypt and Decrypt usage. Startup verifies the server lists KMIP 1.4 and both operations, checks every key's state, algorithm, length, and usage mask, and probes a wrap and unwrap; any failure names the field and fails the boot. |
+| `connect_timeout` (`kmip`) | `Duration` | `5s` | Per-attempt bound on reading the TLS files, the TCP connect, and the TLS handshake together. At most `60s`. |
+| `request_timeout` (`kmip`) | `Duration` | `10s` | Per-attempt bound on writing a request and reading its complete response; also bounds waiting for the shared connection. At most `120s`. |
 
 ### `CertificatesConfig`
 
