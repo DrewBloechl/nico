@@ -42,7 +42,24 @@ const ARTIFACT_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 pub(crate) enum FirmwareAction {
     #[command(
         about = "Verify firmware files and compare a live NIC with an exact target",
-        long_about = "Verify the image and optional device-config SHA-256 digests, then inspect the selected live NIC's part number, PSID, and firmware version. Requires --mode standalone. The query must report the same PCI address; MST aliases are not resolved.\n\nAn exact version match and a change needed both exit successfully; unavailable or incompatible device facts and download/checksum failures return an error. A newer installed version still means a change is needed. This does not interpret image or device-config contents, approve flashing, or change hardware.\n\nEach present input is staged and checked before the device query. Temporary files are removed on completion or catchable SIGINT/SIGTERM cancellation, not guaranteed after SIGKILL or power loss. Each artifact has a 600-second download/retry deadline (hashing follows it); the subsequent read-only device query has a 30-second deadline."
+        long_about = "Verify the image and optional device-config SHA-256 digests, then inspect \
+            the selected live NIC's part number, PSID, and firmware version. Requires --mode \
+            standalone. The query must report the same PCI address; MST aliases are not \
+            resolved.\n\n\
+            An exact version match and a change needed both exit successfully; unavailable or \
+            incompatible device facts and download/checksum failures return an error. A newer \
+            installed version still means a change is needed. This does not interpret image or \
+            device-config contents, approve flashing, or change hardware.\n\n\
+            Each present input is staged and checked before the device query. Temporary files \
+            are removed on completion or catchable SIGINT/SIGTERM cancellation, not guaranteed \
+            after SIGKILL or power loss. Each artifact has a 600-second download/retry deadline \
+            (hashing follows it). The subsequent read-only device query requires Linux and \
+            mlx-firmware-supervisor beside forge-scout. Its 30-second deadline includes the \
+            tool, all descendants, and output collection. Each output stream is capped at \
+            1 MiB. Query failure or timeout allows up to five seconds for cleanup and five \
+            more seconds to receive the result. Cancellation requests cleanup independently \
+            without waiting for confirmation. Terminating the helper, including the whole \
+            service control group, prevents its cleanup."
     )]
     Preflight(PreflightArgs),
 }

@@ -51,6 +51,7 @@ carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-kmip = { path = "../kmip" }
 carbide-kms-provider = { path = "../kms-provider" }
 carbide-libmlx = { path = "../libmlx" }
+carbide-libmlx-model = { path = "../libmlx-model" }
 carbide-machine-controller = { path = "../machine-controller" }
 carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
 carbide-metrics-utils = { path = "../metrics-utils" }

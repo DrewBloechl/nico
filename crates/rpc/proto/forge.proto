@@ -6396,7 +6396,11 @@ message ForgeAgentControlResponse {
       MlxDeviceLock lock = 3;
       MlxDeviceUnlock unlock = 4;
       MlxDeviceApplyProfile apply_profile = 5;
+      // Legacy uncorrelated firmware command. Scouts supporting durable firmware
+      // operations reject this command before executing it.
       MlxDeviceApplyFirmware apply_firmware = 6;
+      // Durable firmware work uses a distinct tag so older Scouts ignore it.
+      MlxDeviceApplyFirmwareOperation apply_firmware_operation = 7;
     }
   }
 
@@ -6417,6 +6421,18 @@ message ForgeAgentControlResponse {
 
   message MlxDeviceApplyFirmware {
     optional mlx_device.FirmwareFlasherProfile profile = 1;
+  }
+
+  // Submit or observe one durable firmware operation. This command is omitted
+  // from the legacy JSON projection because older Scouts cannot deduplicate it.
+  message MlxDeviceApplyFirmwareOperation {
+    // Selected target; omission records a successful operation without a burn.
+    optional mlx_device.FirmwareFlasherProfile profile = 1;
+    // Stable identifier containing 1-256 printable nonspace ASCII bytes for one
+    // persisted ApplyFirmware state entry. Repeated polls reuse this value even
+    // when profile is absent; a later state entry receives a different value.
+    // Omitted or empty values are rejected.
+    string operation_id = 2;
   }
 
   message FirmwareUpgrade {
