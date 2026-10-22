@@ -61,11 +61,10 @@ jobs:
     steps:
       - name: Analyze Build Results
         id: analyze
+        env:
+          NEEDS_CONTEXT: ${{ inputs.needs-context }}
         run: |
-          # Write needs context to file to avoid shell interpretation issues with nested JSON
-          cat > /tmp/needs.json << 'NEEDS_EOF'
-          ${{ inputs.needs-context }}
-          NEEDS_EOF
+          printf '%s' "$NEEDS_CONTEXT" > /tmp/needs.json
 
           # Count job results (only look at .result field to avoid nested JSON issues)
           TOTAL=$(jq -r 'length' /tmp/needs.json)
