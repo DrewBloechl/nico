@@ -89,10 +89,20 @@ async fn run_integration() -> eyre::Result<()> {
         println!("test_integration: SKIPPED (set REPO_ROOT and DATABASE_URL to run)");
         return Ok(());
     };
+    // Enable SPDM so its controller metrics appear in the catalogue scrape.
+    test_env.spdm_enabled = true;
+
+    db::migrations::migrate(&test_env.db_pool).await?;
+    // An empty profile set is the precondition for skipping SPDM verification.
+    assert!(
+        db::attestation_profile::list(&test_env.db_pool)
+            .await?
+            .is_empty(),
+        "SPDM metrics coverage requires an empty attestation profile set at startup"
+    );
 
     // Persist a predecessor root without a protection request before either API
     // starts, then verify that the background controller makes it ready.
-    db::migrations::migrate(&test_env.db_pool).await?;
     let mut txn = test_env.db_pool.begin().await?;
     let recovery_tenant_id = "site-prefix-recovery";
     db::tenant::create_and_persist(
@@ -488,6 +498,7 @@ async fn run_integration() -> eyre::Result<()> {
             .await?;
         }
     }
+    wait_for_count_metric_aliases(&test_env).await?;
     // Exercise the library sampler on the server's meter without activating a
     // remote backend. Stop its task before catalogue collection and generation,
     // which can return early or panic on I/O errors.
@@ -547,6 +558,40 @@ async fn run_integration() -> eyre::Result<()> {
     }
     test_env.db_pool.close().await;
     bmc_mock_handle.stop().await?;
+    Ok(())
+}
+
+/// Waits for both count names before the catalogue scrape.
+async fn wait_for_count_metric_aliases(test_env: &IntegrationTestEnvironment) -> eyre::Result<()> {
+    for (legacy, alias) in [
+        ("carbide_preingestion_total", "carbide_preingestion_count"),
+        ("carbide_machines_total", "carbide_machines_count"),
+        (
+            "carbide_network_segments_total",
+            "carbide_network_segments_count",
+        ),
+        ("carbide_vpc_prefixes_total", "carbide_vpc_prefixes_count"),
+        (
+            "carbide_extension_services_total",
+            "carbide_extension_services_count",
+        ),
+        (
+            "carbide_spdm_attestation_total",
+            "carbide_spdm_attestation_count",
+        ),
+        ("carbide_ib_partitions_total", "carbide_ib_partitions_count"),
+        ("carbide_power_shelves_total", "carbide_power_shelves_count"),
+        ("carbide_racks_total", "carbide_racks_count"),
+        ("carbide_switches_total", "carbide_switches_count"),
+    ] {
+        for name in [legacy, alias] {
+            metrics::wait_for_metric_line(
+                &test_env.carbide_metrics_addrs,
+                &format!("# TYPE {name} gauge\n"),
+            )
+            .await?;
+        }
+    }
     Ok(())
 }
 
@@ -862,6 +907,7 @@ async fn run_metrics_integration() -> eyre::Result<()> {
         metrics: _,
         db_url: _,
         credential_config: _,
+        spdm_enabled: _,
         _vault_handle,
     } = test_env.clone();
 
@@ -901,6 +947,9 @@ async fn run_metrics_integration() -> eyre::Result<()> {
                 )
                     .await?;
                 metrics::assert_metric_line(&metrics, r#"carbide_machines_total{fresh="true"} 1"#);
+                for name in ["carbide_spdm_attestation_total", "carbide_spdm_attestation_count"] {
+                    metrics::assert_not_metric_line(&metrics, name);
+                }
                 // Also check that metrics are emitted under the configured `alt_metric_prefix`
                 metrics::assert_metric_line(&metrics, r#"alt_metric_machines_total{fresh="true"} 1"#);
                 metrics::assert_not_metric_line(
