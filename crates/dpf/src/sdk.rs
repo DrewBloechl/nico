@@ -1238,10 +1238,13 @@ pub fn build_deployment(
             });
         }
 
-        all_switches.push(DpuDeploymentServiceChainsSwitches {
-            ports,
-            service_mtu: None,
-        });
+        // Preserve DPF's default for ordinary chains while fixed service-VPC patches carry their
+        // qualified jumbo MTU explicitly.
+        let service_mtu = match &iface.iface_type {
+            DpuServiceInterfaceTemplateType::Patch(patch) => patch.service_mtu,
+            _ => None,
+        };
+        all_switches.push(DpuDeploymentServiceChainsSwitches { ports, service_mtu });
     }
     if matches!(deployment_type, DpuDeploymentType::Bf4Astra) {
         all_switches.extend(build_astra_patch_service_chain_switches(interfaces));
@@ -1625,6 +1628,7 @@ pub fn build_effective_dpu_interfaces(
                 peer_bridge: interface.bridge.clone(),
                 peer_patch_name: interface.patch_port.clone(),
                 peer_external_ids: None,
+                service_mtu: None,
             }),
             pf_id: i64::from(identity.pf_id),
             vf_id: i64::from(identity.vf_id.unwrap_or_default()),
@@ -1722,6 +1726,7 @@ fn build_astra_patch_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefi
                         peer_bridge: format!("brcx-{group_id}"),
                         peer_patch_name: String::new(),
                         peer_external_ids: None,
+                        service_mtu: None,
                     }),
                     pf_id: 0,
                     vf_id: 0,
@@ -1737,6 +1742,7 @@ fn build_astra_patch_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefi
                             ("xplane-group-id".to_string(), group_id.to_string()),
                             ("xplane-downlink".to_string(), "patch".to_string()),
                         ])),
+                        service_mtu: None,
                     }),
                     pf_id: 0,
                     vf_id: 0,
@@ -8911,6 +8917,62 @@ mod tests {
         let observed = dpu_service_from_resource(dpu_service_to_resource(&service)).unwrap();
         assert_eq!(observed.service_id, service.service_id);
         assert_eq!(observed.interfaces, service.interfaces);
+    }
+
+    /// Verifies privileged opt-in survives while disabled SPIFFE and omitted DPF DaemonSet settings
+    /// stay absent because the platform chart owns its privileged CNI daemon manifest.
+    #[tokio::test]
+    async fn dpu_service_absent_spiffe_and_daemon_set_round_trip_through_repository() {
+        // Disable the two optional fields on a complete service; the helper supplies valid
+        // metadata and Helm settings needed to exercise repository creation.
+        let mut desired_service = test_dpu_service("detached-service");
+        desired_service.security.privileged = true;
+        desired_service.security.spiffe = false;
+        desired_service.service_daemon_set = None;
+        let mock = SdkMock::new();
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        // Create through DpfSdk and verify the repository response preserves both omissions.
+        let created_service = sdk.create_dpu_service(&desired_service).await.unwrap();
+        let created_security = created_service
+            .security
+            .as_ref()
+            .expect("created service must retain its security object");
+        assert_eq!(created_security.privileged, Some(true));
+        assert!(!created_security.spiffe);
+        assert!(created_service.service_daemon_set.is_none());
+
+        // Inspect the stored checked CR because both fields must be absent from Kubernetes JSON.
+        let stored_service = mock
+            .services
+            .read()
+            .unwrap()
+            .get(&SdkMock::ns_key(TEST_NAMESPACE, "detached-service"))
+            .cloned()
+            .expect("created service must be stored");
+        let stored_document = serde_json::to_value(stored_service).unwrap();
+        assert_eq!(
+            stored_document["spec"]["security"],
+            json!({"privileged": true})
+        );
+        assert!(stored_document["spec"].get("serviceDaemonSet").is_none());
+
+        // Reread through the public SDK operation to prove persistence preserves both omissions.
+        let persisted_service = sdk
+            .get_dpu_service("detached-service")
+            .await
+            .unwrap()
+            .expect("created service must be observable");
+        let persisted_security = persisted_service
+            .security
+            .as_ref()
+            .expect("persisted service must retain its security object");
+        assert_eq!(persisted_security.privileged, Some(true));
+        assert!(!persisted_security.spiffe);
+        assert!(persisted_service.service_daemon_set.is_none());
     }
 
     /// Verifies the serialized DPUService omits nodeSelector when no selector is

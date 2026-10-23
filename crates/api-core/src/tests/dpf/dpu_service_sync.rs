@@ -15,10 +15,12 @@
  * limitations under the License.
  */
 
-//! Releasing the DPF maintenance hold so a changed DPUService rolls out.
+//! Releasing the DPF maintenance hold so a changed DPUDeployment-owned DPUService revision rolls
+//! out.
 //!
-//! DPF parks a DPU in `NodeEffect` when its services change, and carbide opens
-//! that gate only for a DPU already running the software its DPUDeployment
+//! DPF parks a DPU in `NodeEffect` when a changed service revision has
+//! `upgradePolicy.applyNodeEffect=true`, and carbide opens that gate only for a DPU already running
+//! the software its DPUDeployment
 //! declares. These cover the four outcomes: released, deferred because the DPU
 //! is outdated, deferred because the release itself failed, and not attempted
 //! at all because nothing is pending.

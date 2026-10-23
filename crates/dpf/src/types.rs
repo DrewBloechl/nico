@@ -665,6 +665,8 @@ pub struct DpuServiceInterfacePatch {
     pub(crate) peer_bridge: String,
     pub(crate) peer_patch_name: String,
     pub(crate) peer_external_ids: Option<BTreeMap<String, String>>,
+    /// Optional MTU for the DPUDeployment service-chain switch terminating this patch.
+    pub(crate) service_mtu: Option<i64>,
 }
 
 /// Network interface for a DPU service.

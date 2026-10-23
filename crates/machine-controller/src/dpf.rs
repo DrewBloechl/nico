@@ -191,26 +191,26 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// DPU is already up to date" fail closed.
     async fn is_dpu_outdated(&self, dpu_name: &str) -> Result<bool, DpfError>;
 
-    /// Create a direct, detached DPUService for an extension service.
+    /// Create a direct, detached DPUService managed independently of a DPUDeployment.
     async fn create_dpu_service(
         &self,
         service: &DetachedDpuServiceDefinition,
     ) -> Result<DpuServiceObservation, DpfError>;
 
-    /// Get any observed DPUService by name for an extension service.
+    /// Get any observed DPUService by name for ownership and convergence checks.
     async fn get_dpu_service(
         &self,
         service_name: &str,
     ) -> Result<Option<DpuServiceObservation>, DpfError>;
 
-    /// Apply an RFC 6902 JSON Patch to a detached DPUService for an extension service.
+    /// Apply an RFC 6902 JSON Patch to a detached DPUService.
     async fn patch_dpu_service(
         &self,
         service_name: &str,
         patch: serde_json::Value,
     ) -> Result<DpuServiceObservation, DpfError>;
 
-    /// Delete the exact detached DPUService observed for an extension service.
+    /// Delete the exact detached DPUService identified by Kubernetes preconditions.
     async fn delete_dpu_service(
         &self,
         service_name: &str,
