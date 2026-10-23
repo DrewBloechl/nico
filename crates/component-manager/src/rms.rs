@@ -7812,6 +7812,59 @@ mod tests {
         }
     }
 
+    /// TLS client errors may contain private connection details. Keep them out
+    /// of per-device errors and logs while retaining a useful failure warning.
+    #[tokio::test]
+    async fn rms_power_reads_sanitize_tls_errors_in_results_and_logs() {
+        const PRIVATE_PAYLOAD: &str = "power-read-tls-detail-must-not-be-reported";
+        const TLS_ERROR: &str = "RMS power read TLS failed";
+
+        let mock = MockRmsApi::new();
+        let nodes = power_read_nodes(1);
+        // TLS errors can contain private connection details before RMS replies.
+        mock.enqueue_batch_get_power_state(Err(RackManagerError::TlsError(
+            librms::RmsTlsClientError::Connection(PRIVATE_PAYLOAD.to_owned()),
+        )))
+        .await;
+
+        let (results, logs) = capture_logs_async(query_test_power_nodes(
+            &mock,
+            nodes.clone(),
+            Instant::now() + RMS_POWER_READ_TIMEOUT,
+        ))
+        .await;
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].mac_address,
+            PS_MAC_1.parse::<MacAddress>().expect("management MAC")
+        );
+        assert_eq!(results[0].power_state, Err(TLS_ERROR.to_owned()));
+
+        // RED must report the failure, but none of the captured fields or
+        // messages may include the original TLS client error.
+        let failure_log = logs
+            .iter()
+            .find(|log| {
+                log.message == "external call failed"
+                    && log.field("operation") == Some("batch_get_power_state")
+            })
+            .expect("RED reports the TLS failure");
+        assert_eq!(failure_log.level, tracing::Level::WARN);
+        assert_eq!(failure_log.field("backend"), Some("rms"));
+        assert_eq!(failure_log.field("error"), Some(TLS_ERROR));
+        assert!(logs.iter().all(|log| {
+            !log.message.contains(PRIVATE_PAYLOAD)
+                && log.fields.iter().all(|(name, value)| {
+                    !name.contains(PRIVATE_PAYLOAD) && !value.contains(PRIVATE_PAYLOAD)
+                })
+        }));
+
+        let calls = mock.batch_get_power_state_calls().await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].nodes.as_ref().expect("request nodes").nodes, nodes);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn rms_power_read_deadline_includes_preparation() {
         tokio::time::timeout(RMS_POWER_READ_TIMEOUT * 2, async {
