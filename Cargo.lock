@@ -1400,6 +1400,7 @@ dependencies = [
  "carbide-resource-pool",
  "carbide-rpc",
  "carbide-secrets",
+ "carbide-ssh-console",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",

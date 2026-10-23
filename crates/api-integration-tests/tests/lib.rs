@@ -57,6 +57,7 @@ use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
 const UNDERLAY_DHCP_RELAY_ADDRESS: Ipv4Addr = Ipv4Addr::new(172, 20, 1, 1);
+const SSH_METRIC_CATALOGUE_OUTPUT: &str = "CARBIDE_SSH_METRIC_CATALOGUE_OUTPUT";
 
 #[ctor::ctor(unsafe)]
 fn setup() {
@@ -66,6 +67,12 @@ fn setup() {
 /// Run multiple machine-a-tron integration tests in parallel against a shared carbide API instance.
 #[test]
 fn test_integration() -> eyre::Result<()> {
+    if let Some(output_path) = std::env::var_os(SSH_METRIC_CATALOGUE_OUTPUT) {
+        return utils::api_server_runtime_builder()
+            .worker_threads(2)
+            .build()?
+            .block_on(write_ssh_console_metric_info(output_path.into()));
+    }
     utils::api_server_runtime_builder()
         .build()?
         .block_on(run_integration())
@@ -482,8 +489,8 @@ async fn run_integration() -> eyre::Result<()> {
         }
     }
     // Exercise the library sampler on the server's meter without activating a
-    // remote backend. Stop its task before `generate_core_metric_docs`, whose
-    // metric fetch and file write can panic on I/O errors.
+    // remote backend. Stop its task before catalogue collection and generation,
+    // which can return early or panic on I/O errors.
     let mut cleanup_metric_tasks = tokio::task::JoinSet::new();
     let cleanup_metric_cancel = cancel_token.child_token();
     carbide_resource_pool::remote::start_cleanup_metrics(
@@ -502,7 +509,9 @@ async fn run_integration() -> eyre::Result<()> {
         result?;
     }
     cleanup_metric_result?;
-    generate_core_metric_docs(&test_env.carbide_metrics_addrs);
+    let mut metric_infos = metrics::collect_metric_infos(&test_env.carbide_metrics_addrs)?;
+    metric_infos.push(collect_ssh_console_metric_info().await?);
+    generate_core_metric_docs(metric_infos);
     drop(mqtt_client);
 
     // MaT opens ScoutStream on its primary API address and shares ordinary RPCs across both.
@@ -604,8 +613,71 @@ async fn exercise_dpf_exploration_suppression(
     Ok(())
 }
 
-fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
-    let mut infos = metrics::collect_metric_infos(metrics_endpoints).unwrap();
+async fn collect_ssh_console_metric_info() -> eyre::Result<metrics::MetricInfo> {
+    // A separate process prevents SSH Console from replacing the API server's
+    // global meter provider or binding its cached Events to that provider.
+    let output_dir = temp_dir::TempDir::with_prefix("ssh-metric-catalogue")?;
+    let output_path = output_dir.path().join("metric.json");
+    let mut child = tokio::process::Command::new(std::env::current_exe()?)
+        .args(["--exact", "test_integration", "--nocapture"])
+        .env(SSH_METRIC_CATALOGUE_OUTPUT, &output_path)
+        .kill_on_drop(true)
+        .spawn()?;
+    // This child only starts local listeners, scrapes once, and shuts down.
+    let status = match tokio::time::timeout(Duration::from_secs(30), child.wait()).await {
+        Ok(status) => status?,
+        Err(error) => {
+            child.kill().await?;
+            return Err(error).wrap_err("SSH metric catalogue subprocess timed out");
+        }
+    };
+    eyre::ensure!(
+        status.success(),
+        "SSH metric catalogue subprocess failed: {status}"
+    );
+    let (name, ty, help): (String, String, String) =
+        serde_json::from_slice(&std::fs::read(output_path)?)?;
+    Ok(metrics::MetricInfo { name, ty, help })
+}
+
+async fn write_ssh_console_metric_info(output_path: PathBuf) -> eyre::Result<()> {
+    use ssh_console::shutdown_handle::ShutdownHandle;
+
+    let certs = &utils::LOCALHOST_CERTS;
+    let config = ssh_console::config::Config {
+        listen_address: "127.0.0.1:0".parse()?,
+        metrics_address: "127.0.0.1:0".parse()?,
+        api_listen_address: "127.0.0.1:0".parse()?,
+        carbide_uri: "https://localhost:1".parse()?,
+        override_bmcs: Some(Vec::new()),
+        host_key_path: utils::REPO_ROOT
+            .join("crates/ssh-console/tests/fixtures/ssh_host_ed25519_key"),
+        forge_root_ca_path: certs.ca_cert.clone(),
+        client_cert_path: certs.client_cert.clone(),
+        client_key_path: certs.client_key.clone(),
+        console_logging_enabled: false,
+        ..Default::default()
+    };
+    let handle = ssh_console::spawn(config, None).await?;
+    let infos = metrics::collect_metric_infos(&[handle.metrics_address()]);
+    handle.shutdown_and_wait().await;
+    let info = infos?
+        .into_iter()
+        .find(|info| info.name == "carbide_ssh_console_bmc_recovery_attempts_total")
+        .context("SSH console did not export its BMC recovery counter")?;
+    assert_eq!(info.ty, "counter");
+    assert!(
+        !info.help.is_empty(),
+        "the SSH recovery counter needs HELP text"
+    );
+    std::fs::write(
+        output_path,
+        serde_json::to_vec(&(info.name, info.ty, info.help))?,
+    )?;
+    Ok(())
+}
+
+fn generate_core_metric_docs(mut infos: Vec<metrics::MetricInfo>) {
     retain_existing_core_metric_infos(&mut infos);
 
     // Delete everything with "alt_metric_" prefix
