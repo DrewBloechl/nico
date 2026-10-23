@@ -616,6 +616,9 @@ async fn run_integration() -> eyre::Result<()> {
     let mut metric_infos = metrics::collect_metric_infos(&test_env.carbide_metrics_addrs)?;
     metric_infos.push(collect_ssh_console_metric_info().await?);
     metric_infos.extend(collect_dhcp_metric_infos().await?);
+    metric_infos.extend(metrics::parse_metric_infos(
+        &carbide_health::test_support::hardware_metric_exposition()?,
+    ));
     for name in [
         "carbide_dpu_client_certificate_expiration_time",
         "carbide_dpu_client_certificate_expiration_time_seconds",

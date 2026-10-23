@@ -28,6 +28,7 @@ repository.workspace = true
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 carbide-machine-a-tron = { path = "../machine-a-tron" }
 carbide-dhcp = { path = "../dhcp", features = ["test-support"] }
+carbide-health = { path = "../health", features = ["test-support"] }
 carbide-resource-pool = { path = "../resource-pool" }
 carbide-rpc = { path = "../rpc" }
 carbide-uuid = { path = "../uuid" }
