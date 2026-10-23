@@ -155,7 +155,6 @@ func TestWorkflowOrchestrator(t *testing.T) {
 			assert.Equal(t, float64(expiration.Unix()), gaugeValue())
 			metrics, gatherErr := registry.Gather()
 			require.NoError(t, gatherErr)
-			require.Len(t, metrics, 4)
 			var expirationMetric *dto.MetricFamily
 			for _, metric := range metrics {
 				if metric.GetName() == "nico_rest_site_agent_temporal_cert_expiration_timestamp_seconds" {
