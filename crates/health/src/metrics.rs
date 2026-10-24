@@ -500,6 +500,8 @@ pub struct GaugeMetrics {
 impl GaugeMetrics {
     /// Registers gauge readings with an ID unique to the registry. The registration
     /// identity does not add labels or change the names returned by `collect()`.
+    /// `metric_help` supplies gauge `HELP`; counter aliases use the description
+    /// in their sample's `MetricSemantics::CumulativeCounter`.
     pub fn new(
         id: String,
         registry: &Registry,
@@ -628,12 +630,17 @@ impl Collector for GaugeMetrics {
 
             // Both series share one retained reading, so pruning removes both.
             // Replacement uses the latest value; invalid totals omit only the alias.
-            let counter_labels = data
-                .semantics
-                .exports_counter(data.value)
-                .then(|| labels.clone());
-            for (kind, labels) in std::iter::once((proto::MetricType::GAUGE, labels))
-                .chain(counter_labels.map(|labels| (proto::MetricType::COUNTER, labels)))
+            let counter = match data.semantics {
+                MetricSemantics::CumulativeCounter { description, .. }
+                    if data.semantics.exports_counter(data.value) =>
+                {
+                    Some((proto::MetricType::COUNTER, labels.clone(), description))
+                }
+                _ => None,
+            };
+            for (kind, labels, help) in
+                std::iter::once((proto::MetricType::GAUGE, labels, self.metric_help.as_str()))
+                    .chain(counter)
             {
                 let family_key = (
                     data.name.clone(),
@@ -651,7 +658,7 @@ impl Collector for GaugeMetrics {
                     }
                     let mut family = proto::MetricFamily::default();
                     family.set_name(name);
-                    family.set_help(self.metric_help.clone());
+                    family.set_help(help.to_string());
                     family.set_field_type(kind);
                     family
                 });
@@ -931,9 +938,18 @@ mod tests {
                 GaugeReading::new("device", "hardware", "errors", "count", value)
                     .with_labels(vec![("component".into(), "pcie".to_string())])
                     .with_semantics(MetricSemantics::CumulativeCounter {
+                        description: "Number of PCIe errors reported by the device",
                         start_time: Some(std::time::UNIX_EPOCH),
                     })
             };
+            readings.record(
+                GaugeReading::new("replays", "hardware", "replays", "count", 20.0)
+                    .with_labels(vec![("component".into(), "pcie".to_string())])
+                    .with_semantics(MetricSemantics::CumulativeCounter {
+                        description: "Number of PCIe replays reported by the device",
+                        start_time: None,
+                    }),
+            );
             [10.0, replacement].map(|value| {
                 readings.record(reading(value));
                 registry
@@ -984,19 +1000,40 @@ mod tests {
                 input: value,
                 expect: [(10.0, 2), (value, family_count)].map(|(value, family_count)| {
                     [
-                        ("custom_hardware_errors_count", proto::MetricType::GAUGE),
+                        (
+                            "custom_hardware_errors_count",
+                            proto::MetricType::GAUGE,
+                            "Device readings",
+                            value,
+                        ),
                         (
                             "custom_hardware_errors_count_total",
                             proto::MetricType::COUNTER,
+                            "Number of PCIe errors reported by the device",
+                            value,
                         ),
                     ]
                     .into_iter()
                     .take(family_count)
-                    .map(|(name, kind)| {
+                    .chain([
+                        (
+                            "custom_hardware_replays_count",
+                            proto::MetricType::GAUGE,
+                            "Device readings",
+                            20.0,
+                        ),
+                        (
+                            "custom_hardware_replays_count_total",
+                            proto::MetricType::COUNTER,
+                            "Number of PCIe replays reported by the device",
+                            20.0,
+                        ),
+                    ])
+                    .map(|(name, kind, help, value)| {
                         (
                             name.to_string(),
                             kind,
-                            "Device readings".to_string(),
+                            help.to_string(),
                             vec![(
                                 value.to_bits(),
                                 vec![

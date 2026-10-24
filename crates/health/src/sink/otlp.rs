@@ -641,6 +641,7 @@ mod tests {
             };
             sample.value = value;
             sample.semantics = MetricSemantics::CumulativeCounter {
+                description: "Number of correctable ECC errors over the memory lifetime",
                 start_time: Some(SystemTime::UNIX_EPOCH + Duration::from_nanos(start_nanos)),
             };
             sink.handle_event(&ctx, &CollectorEvent::Metric(sample));
@@ -656,6 +657,7 @@ mod tests {
         assert_eq!(
             latest.pair().1.semantics,
             MetricSemantics::CumulativeCounter {
+                description: "Number of correctable ECC errors over the memory lifetime",
                 start_time: Some(SystemTime::UNIX_EPOCH + Duration::from_nanos(2)),
             },
         );
@@ -1678,6 +1680,7 @@ mod tests {
                 unit: "count".to_string(),
                 value: 42.0,
                 semantics: MetricSemantics::CumulativeCounter {
+                    description: "Number of correctable ECC errors over the memory lifetime",
                     start_time: Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1)),
                 },
                 labels: vec![],

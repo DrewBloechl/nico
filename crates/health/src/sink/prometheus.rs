@@ -931,7 +931,10 @@ mod tests {
             sink.handle_event(
                 &context,
                 &CollectorEvent::Metric(Box::new(MetricSample {
-                    semantics: crate::sink::MetricSemantics::CumulativeCounter { start_time: None },
+                    semantics: crate::sink::MetricSemantics::CumulativeCounter {
+                        description: "Number of events reported by the interface",
+                        start_time: None,
+                    },
                     key: key.to_string(),
                     name: "nvue_gnmi_extended".to_string(),
                     metric_type: "reading".to_string(),
