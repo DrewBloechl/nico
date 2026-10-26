@@ -480,3 +480,8 @@ Maintainers will set a GitHub issue's Priority field to record its importance.
 New issues are triaged weekly, and issue priority is mapped according to
 severity, user impact, and relationship to the roadmap. To request a different
 priority, please comment on the issue with context or supporting evidence.
+
+## Extending NICo
+
+- [DPU Extension Services](docs/design/dpf-helm-chart-extension-services.md)
+- [New Hardware Support](docs/development/new_hardware_support.md)
