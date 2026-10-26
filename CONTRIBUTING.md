@@ -473,3 +473,10 @@ forward.
 
 For pinned dependency updates, image testing, and build optimization trade-offs, see the
 [Build Guide](docs/development/build-guide.md).
+
+## Issue Priority
+
+Maintainers will set a GitHub issue's Priority field to record its importance.
+New issues are triaged weekly, and issue priority is mapped according to
+severity, user impact, and relationship to the roadmap. To request a different
+priority, please comment on the issue with context or supporting evidence.
