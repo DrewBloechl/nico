@@ -50,7 +50,7 @@ process to be followed for all contributions.
 The DCO is a lightweight way for contributors to certify that they wrote or
 otherwise have the right to submit the code they are contributing. The full
 text of the DCO can be found at
-[developercertificate.org](https://developercertificate.org/):
+[developercertificate.org][dco]:
 
 ```text
 Developer Certificate of Origin
@@ -175,12 +175,12 @@ git commit --amend -s -S --no-edit
 ## Fork and Setup
 
 Developers must first fork the upstream
-[Infra Controller repository](https://github.com/dsx-ai-factory/infra-controller).
+[Infra Controller repository][infra-controller].
 
 ### 1. Fork the Repository
 
 1. Navigate to the
-   [Infra Controller repository](https://github.com/dsx-ai-factory/infra-controller)
+   [Infra Controller repository][infra-controller]
    on GitHub.
 2. Click the **Fork** button in the upper right corner.
 3. Select your GitHub account as the destination.
@@ -236,7 +236,7 @@ Use descriptive branch names like:
 ## Secret Scanning
 
 Credentials are the one class of mistake that a later commit cannot take back, so this repository scans for them locally as well as in CI.
-The [`.pre-commit-config.yaml`](.pre-commit-config.yaml) at the repository root declares a single hook, `secret-scan-trufflehog`, from [`NVIDIA/security-workflows`](https://github.com/NVIDIA/security-workflows).
+The [`.pre-commit-config.yaml`](.pre-commit-config.yaml) at the repository root declares a single hook, `secret-scan-trufflehog`, from [`NVIDIA/security-workflows`][security-workflows].
 
 It checks your staged files at `git commit` time:
 
@@ -372,7 +372,7 @@ above.
 - Our PR workflow squashes branches into a single Git commit when merging, and
   the PR title and description will become the resulting commit message.
 - Format your PR title according to the
-  [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+  [Conventional Commits][conventional-commits]
   specification.
 - Do not put test results or irrelevant details into the pull request
   description, add them as comments if you really feel the need to explain how
@@ -485,3 +485,8 @@ priority, please comment on the issue with context or supporting evidence.
 
 - [DPU Extension Services](docs/design/dpf-helm-chart-extension-services.md)
 - [New Hardware Support](docs/development/new_hardware_support.md)
+
+[dco]: https://developercertificate.org/
+[infra-controller]: https://github.com/dsx-ai-factory/infra-controller
+[security-workflows]: https://github.com/NVIDIA/security-workflows
+[conventional-commits]: https://www.conventionalcommits.org/en/v1.0.0/
