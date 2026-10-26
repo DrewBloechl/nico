@@ -2225,10 +2225,12 @@ mod tests {
                 expected_nads
             );
             for (name, nad) in &rendered_nads {
-                let expected_bridge = if name == "service-vpc-dhcp-slot0" {
-                    "br-svc-0"
-                } else {
-                    "br-sfc"
+                // Verify each NAD retains the bridge and MTU assigned by its service contract.
+                let (expected_bridge, expected_mtu) = match name.as_str() {
+                    "service-vpc-dhcp-slot0" => ("br-svc-0", carbide_dpf::SERVICE_VPC_MTU),
+                    DHCP_SERVER_SERVICE_NAD_NAME => ("br-sfc", DHCP_SERVER_SERVICE_MTU),
+                    FMDS_SERVICE_NAD_NAME => ("br-sfc", FMDS_SERVICE_MTU),
+                    _ => unreachable!("rendered NAD names were checked above"),
                 };
                 // Slot listeners use the service-VPC contract while ordinary DHCP and FMDS stay unchanged.
                 let expected_mtu = if name == "service-vpc-dhcp-slot0" {
