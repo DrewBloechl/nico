@@ -369,8 +369,11 @@ above.
   exempt from the stale PR policy described below.
 - Be responsive to feedback and code review comments.
 - Ensure all CI checks pass before requesting review.
-- The pull request description is what ends-up in the final immutable git
-  message, it needs to be as concise as possible.
+- Our PR workflow squashes branches into a single Git commit when merging, and
+  the PR title and description will become the resulting commit message.
+- Format your PR title according to the
+  [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+  specification.
 - Do not put test results or irrelevant details into the pull request
   description, add them as comments if you really feel the need to explain how
   it was tested.
