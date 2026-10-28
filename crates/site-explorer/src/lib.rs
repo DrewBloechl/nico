@@ -154,6 +154,7 @@ pub fn new_bmc_explorer(
     bmc_client: Arc<AuthenticatedBmcClient>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
     mode: SiteExplorerExploreMode,
+    explore_drive_firmware: bool,
     database_connection: PgPool,
 ) -> Arc<BmcEndpointExplorer> {
     BmcEndpointExplorer::new(
@@ -162,6 +163,7 @@ pub fn new_bmc_explorer(
         mode,
         Some(database_connection),
     )
+    .with_drive_firmware(explore_drive_firmware)
     .into()
 }
 
