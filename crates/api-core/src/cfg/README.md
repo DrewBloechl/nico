@@ -688,6 +688,7 @@ to keep the previous behavior.
 | `run_interval` | `Duration` | `120s` | Interval between exploration runs. |
 | `concurrent_explorations` | `u64` | `100` | Max nodes explored in parallel. `0` is treated as `1`. |
 | `explorations_per_run` | `u64` | `360` | Max nodes explored per run. |
+| `exploration_timeouts_before_prevent_allocations` | `u32` | `3` | Explorations of a BMC in a row that must time out before its `BmcExplorationFailure` alert prevents allocations. Other exploration errors prevent allocations immediately. `1` blocks on the first timeout. Until then the BMC is re-explored ahead of the routine refresh. |
 | `create_machines` | `bool` | `true` | When false, SiteExplorer skips creating ManagedHost state machines; the DPU agent (scout) must self-register via DiscoverMachine gRPC endpoint with create_machine=true. Dynamically toggleable. |
 | `machines_created_per_run` | `u64` | `100` | Max ManagedHosts created per run. `0` creates none. |
 | `machine_creation_concurrency` | `u64` | `4` | ManagedHosts created at the same time within one run, each in its own transaction under its own admin-lock admission permit. Clamped to at most one below `admin_lock_admission_permits`, and still `1` when the permit count is `1`, in which case that single creation holds the only permit while it runs. `1` creates hosts one after another and `0` is treated as `1`. Read at startup. A change needs a restart. |
